@@ -56,16 +56,23 @@ def readPosting(r):
     raw_len_word = r.read(4)
     if raw_len_word == '':
         return (False, "", [])
-    
+
     len_word = struct.unpack('<I', raw_len_word)[0]
 
     word = struct.unpack('{}s0'.format(len_word), r.read(len_word))[0]
     skipBytes(r, len_word)
 
     countEntries = struct.unpack('<I', r.read(4))[0]
-    list_entries = list(struct.unpack('<{}I'.format(countEntries), r.read(4 * countEntries)))
 
-    return (True, word, list_entries)
+    entries = dict()
+
+    for i in xrange(countEntries):
+        docId = struct.unpack('<I', r.read(4))[0]
+        coordsLen = struct.unpack('<I', r.read(4))[0]
+        coords = list(struct.unpack('<{}I'.format(coordsLen), r.read(4 * coordsLen)))
+        entries[docId] = coords
+
+    return (True, word, entries)
 
 def readForwardDocs(f):
     raw_doc_id = f.read(4)
@@ -82,6 +89,51 @@ def readForwardDocs(f):
 
     return (True, doc_id, doc_title, doc_url)
 
+def makeWordSimple(word):
+    word = remove_accents(word.lower()).encode('utf-8')
+    if word in lemmaDict:
+        word = lemmaDict[word]
+    return word
+
+def negate(res, substr):
+    if substr == True:
+        return allDocIds - res
+    else:
+        return res
+
+def returnSetIndexFromWord(word, substr):
+    res = set()
+    if word in readyRevertIndex:
+        res = set(readyRevertIndex[word].keys())
+    return negate(res, substr)
+
+def isPostingsNear(posting, pos):
+    for elem in posting:
+        if elem > pos:
+            return False
+        else:
+            if elem == pos:
+                return True
+    return False
+    
+def findQuotesDocIds(quotes, commonDocIds):
+    res = set()
+    for docId in commonDocIds:
+        firstPosting = readyRevertIndex[quotes[0]][docId];
+        for pos in firstPosting:
+            nextPos = pos + 1
+            isFound = True
+            for i in xrange(1, len(quotes)):
+                p = readyRevertIndex[quotes[i]][docId]
+                if isPostingsNear(p, nextPos) == False:
+                    isFound = False
+                    break
+                nextPos += 1
+            if isFound == True:
+                res.add(docId)
+                break
+    return res
+        
 def returnSetIntersection(l):
     if l[0] not in ops:
         word = l[0]
@@ -89,15 +141,31 @@ def returnSetIntersection(l):
         if word[0] == '!':
             substr = True
             word = word[1:]
+
+        quote = []
+        #if quote
+        if word[0] == '"' and word[-1] == '"':
+            words = word[1:-1]
+            #парсинг внутри кавычек
+            quote = re.findall(u'[a-zа-яА-ЯA-Z0-9,.]+', words)
+            quote = [makeWordSimple(q) for q in quote]
         
-        word = remove_accents(word.lower()).encode('utf-8')
-        if word in lemmaDict:
-            word = lemmaDict[word]
-        
-        if word in readyRevertIndex:
-            return (set(readyRevertIndex[word]), substr)
-        else:
-            return (set(), substr)
+            resSet = set()
+
+            if quote.count != 0:
+                firstWord = quote[0]
+                resSet = returnSetIndexFromWord(firstWord, False)
+                for q in quote:
+                    resSet = resSet & returnSetIndexFromWord(q, False)
+            print "resSet:"
+            print resSet
+            commonDocIds = list(resSet)
+            commonDocIds.sort()
+            print commonDocIds
+            return negate(findQuotesDocIds(quote, commonDocIds), substr)
+
+        word = makeWordSimple(word)
+        return returnSetIndexFromWord(word, substr)        
     else:
         start = 1
         cnt_word_need = 1
@@ -112,18 +180,13 @@ def returnSetIntersection(l):
                     cnt_word_need += 1
             start = new_start
 
-        left, sub1 = returnSetIntersection(l[1:start])
-        right, sub2 = returnSetIntersection(l[start:])
+        left = returnSetIntersection(l[1:start])
+        right = returnSetIntersection(l[start:])
         
-        if sub1:
-            left = allDocIds - left
-        if sub2:
-            right = allDocIds - right
-                
         if l[0] == '&':
-            return (left & right, False)
+            return (left & right)
         elif l[0] == '|':
-            return (left | right, False)
+            return (left | right)
 
 fileRevert = sys.argv[1]
 fileForward = sys.argv[2]
@@ -137,10 +200,9 @@ lemmaDict = loadLemmaDict()
 flag = True
 while flag:
     flag, word, posting = readPosting(r)
-    if word in readyRevertIndex:
-        readyRevertIndex[word].extend(posting)
-    else:
-        readyRevertIndex[word] = posting
+    if flag == False:
+        break
+    readyRevertIndex[word] = posting
 
 flag = True
 while flag:
@@ -184,7 +246,8 @@ def getReversed(elements):
     return answer
 
 def getQueryResult(expr):
-    elements = re.findall(u'!?[a-zа-яА-ЯA-Z0-9,.]+|[&|()]', expr)
+    #парсинг запроса
+    elements = re.findall(u'!?"[a-zA-Zа-яА-Я0-9\s.,]+"|!?[a-zа-яА-ЯA-Z0-9,.]+|[&|()]', expr)
     
     i = 0
     while i < len(elements) - 1:
@@ -199,8 +262,7 @@ def getQueryResult(expr):
 
     
     answer = getReversed(elements)
-    res, b = returnSetIntersection(answer)
-    
+    res = returnSetIntersection(answer)
     
     resDocs = list(res)
     resDocs.sort()
