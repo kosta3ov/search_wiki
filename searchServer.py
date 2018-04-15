@@ -50,14 +50,15 @@ def skipBytes(f, lenWord):
     read_word = 0
     if lenWord % 4 != 0:
         read_word = 4 - lenWord % 4
-    f.read(read_word)
+    f.seek(read_word, os.SEEK_CUR)
 
 def readPosting(r):
     raw_len_word = r.read(4)
     if raw_len_word == '':
-        return (False, "", [])
+        return (False, "", dict())
 
     len_word = struct.unpack('<I', raw_len_word)[0]
+
 
     word = struct.unpack('{}s0'.format(len_word), r.read(len_word))[0]
     skipBytes(r, len_word)
@@ -73,6 +74,21 @@ def readPosting(r):
         entries[docId] = coords
 
     return (True, word, entries)
+
+def skipPosting(r):
+    raw_len_word = r.read(4)
+    if raw_len_word == '':
+        return False, ""
+    len_word = struct.unpack('<I', raw_len_word)[0]
+    word = struct.unpack('{}s0'.format(len_word), r.read(len_word))[0]
+    skipBytes(r, len_word)
+    countEntries = struct.unpack('<I', r.read(4))[0]
+
+    for i in xrange(countEntries):
+        r.seek(4, os.SEEK_CUR)
+        coordsLen = struct.unpack('<I', r.read(4))[0]
+        r.seek(4 * coordsLen, os.SEEK_CUR)
+    return True, word
 
 def readForwardDocs(f):
     raw_doc_id = f.read(4)
@@ -101,34 +117,64 @@ def negate(res, substr):
     else:
         return res
 
+def extractPostingForWord(word):
+    if word not in cacheForSearch:
+        pos = readyRevertIndex[word]
+        r.seek(pos)
+        suc, word, posting = readPosting(r)
+        return posting
+    else:
+        return cacheForSearch[word]
+
 def returnSetIndexFromWord(word, substr):
     res = set()
     if word in readyRevertIndex:
-        res = set(readyRevertIndex[word].keys())
+        res = set(extractPostingForWord(word).keys())
     return negate(res, substr)
 
-def isPostingsNear(posting, pos):
+def isPostingsNear(posting, pos, remain):
+    if remain <= 0:
+        print 'not found <= 0'
+        return False
     for elem in posting:
-        if elem > pos:
-            return False
+        if elem > pos + remain:
+            print 'not found > pos + rem'
+            return False, elem
         else:
-            if elem == pos:
-                return True
-    return False
+            if elem in xrange(pos + 1, pos + remain + 1):
+                print "FOUNDED"
+                return True, elem
+    print 'not found ended'
+    return False, 0
     
-def findQuotesDocIds(quotes, commonDocIds):
+def findQuotesDocIds(quotes, commonDocIds, distInt):
     res = set()
+    if (distInt < len(quotes)):
+        return res
+
+    print 'passed'
+    print distInt
+
     for docId in commonDocIds:
-        firstPosting = readyRevertIndex[quotes[0]][docId];
+        firstPosting = extractPostingForWord(quotes[0])[docId];
         for pos in firstPosting:
-            nextPos = pos + 1
+            remain = distInt - 1
+            nextPos = pos
+            print "remain {}".format(remain)
+            print "nextPos {}".format(nextPos)
+
             isFound = True
             for i in xrange(1, len(quotes)):
-                p = readyRevertIndex[quotes[i]][docId]
-                if isPostingsNear(p, nextPos) == False:
+                p = extractPostingForWord(quotes[i])[docId]
+                isNear, entryPos = isPostingsNear(p, nextPos, remain)
+                if isNear == False:
                     isFound = False
                     break
-                nextPos += 1
+                remain = pos + remain - entryPos
+                nextPos = entryPos
+                print "remain {}".format(remain)
+                print "nextPos {}".format(nextPos)
+
             if isFound == True:
                 res.add(docId)
                 break
@@ -144,25 +190,43 @@ def returnSetIntersection(l):
 
         quote = []
         #if quote
-        if word[0] == '"' and word[-1] == '"':
-            words = word[1:-1]
+
+        countQuotes = word.count('"')
+        print countQuotes
+
+        if countQuotes == 2:
+            quotePos = []
+            for m in re.finditer('"', word):
+                quotePos.append(m.start());
+            words = word[quotePos[0] + 1 : quotePos[1]]
+            print words
+
+            tail = ""
+
             #парсинг внутри кавычек
-            quote = re.findall(u'[a-zа-яА-ЯA-Z0-9,.]+', words)
+            quote = re.findall(u'[a-zа-яА-ЯA-Z0-9]+|\d+(?:[-,.]\d+)*', words)
             quote = [makeWordSimple(q) for q in quote]
+            print quote
+
+            distInt = len(quote)
+            if len(word) > (quotePos[1] + 1):
+                tail = word[quotePos[1]+1:]
+                distString = re.findall('\d+', tail)[0]
+                distInt = int(distString)
         
             resSet = set()
-
+            
             if quote.count != 0:
                 firstWord = quote[0]
                 resSet = returnSetIndexFromWord(firstWord, False)
                 for q in quote:
                     resSet = resSet & returnSetIndexFromWord(q, False)
-            print "resSet:"
-            print resSet
+
+
             commonDocIds = list(resSet)
             commonDocIds.sort()
             print commonDocIds
-            return negate(findQuotesDocIds(quote, commonDocIds), substr)
+            return negate(findQuotesDocIds(quote, commonDocIds, distInt), substr)
 
         word = makeWordSimple(word)
         return returnSetIndexFromWord(word, substr)        
@@ -195,14 +259,18 @@ f = open(fileForward, 'rb')
 
 readyRevertIndex = dict()
 readyForwardIndex = dict()
+
+cacheForSearch = dict()
+
 lemmaDict = loadLemmaDict()
 
 flag = True
 while flag:
-    flag, word, posting = readPosting(r)
+    pos = r.tell()
+    flag, word = skipPosting(r)
     if flag == False:
         break
-    readyRevertIndex[word] = posting
+    readyRevertIndex[word] = pos
 
 flag = True
 while flag:
@@ -247,8 +315,10 @@ def getReversed(elements):
 
 def getQueryResult(expr):
     #парсинг запроса
-    elements = re.findall(u'!?"[a-zA-Zа-яА-Я0-9\s.,]+"|!?[a-zа-яА-ЯA-Z0-9,.]+|[&|()]', expr)
-    
+    elements = re.findall(u'!?"[a-zA-Zа-яА-Я0-9\s]+"(?:\d+)?|!?\d+(?:[-,.]\d+)*|!?[a-zа-яА-ЯA-Z0-9]+|[&|()]', expr)
+    for j in elements:
+        print j
+        
     i = 0
     while i < len(elements) - 1:
         l1 = elements[i]

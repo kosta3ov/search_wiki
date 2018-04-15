@@ -23,7 +23,7 @@ def skipBytes(f, lenWord):
 def readPosting(r):
     raw_len_word = r.read(4)
     if raw_len_word == '':
-        return (False, "", [])
+        return (False, "", dict())
 
     len_word = struct.unpack('<I', raw_len_word)[0]
 
@@ -57,7 +57,7 @@ while flag:
     #     readyRevertIndex[word].update(posting)
 
 
-post = readyRevertIndex["москва"]
+post = len(readyRevertIndex["москва"].keys())
 print post
 
 
