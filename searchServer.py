@@ -76,6 +76,10 @@ def readPosting(r):
     return (True, word, entries)
 
 def skipPosting(r):
+    global allCountPos
+    global terminCount
+    global terminDoc
+
     raw_len_word = r.read(4)
     if raw_len_word == '':
         return False, ""
@@ -84,9 +88,14 @@ def skipPosting(r):
     skipBytes(r, len_word)
     countEntries = struct.unpack('<I', r.read(4))[0]
 
+    terminCount += 1
+
     for i in xrange(countEntries):
         r.seek(4, os.SEEK_CUR)
         coordsLen = struct.unpack('<I', r.read(4))[0]
+        allCountPos += coordsLen
+        terminDoc.append(coordsLen)
+
         r.seek(4 * coordsLen, os.SEEK_CUR)
     return True, word
 
@@ -135,7 +144,7 @@ def returnSetIndexFromWord(word, substr):
 def isPostingsNear(posting, pos, remain):
     if remain <= 0:
         print 'not found <= 0'
-        return False
+        return False, 0
     for elem in posting:
         if elem > pos + remain:
             print 'not found > pos + rem'
@@ -151,6 +160,9 @@ def findQuotesDocIds(quotes, commonDocIds, distInt):
     res = set()
     if (distInt < len(quotes)):
         return res
+
+    if (len(quotes) == 1):
+        return set(commonDocIds)
 
     print 'passed'
     print distInt
@@ -178,6 +190,7 @@ def findQuotesDocIds(quotes, commonDocIds, distInt):
             if isFound == True:
                 res.add(docId)
                 break
+    print "answerDocIds: {}".format(res)
     return res
         
 def returnSetIntersection(l):
@@ -254,8 +267,11 @@ def returnSetIntersection(l):
 
 fileRevert = sys.argv[1]
 fileForward = sys.argv[2]
+fileWordPod = sys.argv[3]
+
 r = open(fileRevert, 'rb')
 f = open(fileForward, 'rb')
+wordPos = open(fileWordPod, 'r')
 
 readyRevertIndex = dict()
 readyForwardIndex = dict()
@@ -264,14 +280,10 @@ cacheForSearch = dict()
 
 lemmaDict = loadLemmaDict()
 
-flag = True
-while flag:
-    pos = r.tell()
-    flag, word = skipPosting(r)
-    if flag == False:
-        break
-    readyRevertIndex[word] = pos
-
+for line in wordPos:
+    word, pos = line.split(" ")
+    readyRevertIndex[word] = int(pos)
+    
 flag = True
 while flag:
     flag, doc_id, doc_title, doc_url = readForwardDocs(f)
