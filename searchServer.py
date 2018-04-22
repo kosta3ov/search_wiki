@@ -10,6 +10,8 @@ import time
 import os
 import struct
 
+app = Flask(__name__)
+
 class docInfo:
     title = ''
     url = ''
@@ -131,6 +133,7 @@ def extractPostingForWord(word):
         pos = readyRevertIndex[word]
         r.seek(pos)
         suc, word, posting = readPosting(r)
+        cacheForSearch[word] = posting
         return posting
     else:
         return cacheForSearch[word]
@@ -155,41 +158,75 @@ def isPostingsNear(posting, pos, remain):
                 return True, elem
     print 'not found ended'
     return False, 0
+
+
+def updateIndexes(quotes, docID, distance):
+    indexes = list()
+    for q in quotes:
+        indexes.append(0)
+
+    entries = [extractPostingForWord(q)[docID] for q in quotes]
+    positions = list()
+    for i in xrange(len(indexes)):
+        index = indexes[i]
+        positions.append(entries[i][index])
+
+    while True:
+        for i in xrange(1, len(indexes)):
+            if positions[i] > positions[i-1]:
+                continue
+            else:
+                while indexes[i] < len(entries[i]) and entries[i][indexes[i]] < positions[i-1]:
+                    indexes[i] += 1
+                if indexes[i] >= len(entries[i]):
+                    return False
+                positions[i] = entries[i][indexes[i]]
+        if (positions[-1] - positions[0]) <= distance:
+            return True
+        else:
+            indexes[0] += 1
+            if indexes[0] >= len(entries[0]):
+                return False
+            positions[0] = entries[0][indexes[0]]
+
+    return True
     
 def findQuotesDocIds(quotes, commonDocIds, distInt):
     res = set()
     if (distInt < len(quotes)):
         return res
-
     if (len(quotes) == 1):
         return set(commonDocIds)
 
-    print 'passed'
-    print distInt
-
+    j = 0
     for docId in commonDocIds:
-        firstPosting = extractPostingForWord(quotes[0])[docId];
-        for pos in firstPosting:
-            remain = distInt - 1
-            nextPos = pos
-            print "remain {}".format(remain)
-            print "nextPos {}".format(nextPos)
+        print j
+        j += 1
+        flag = updateIndexes(quotes, docId, distInt)
+        if flag == True:
+            res.add(docId)
 
-            isFound = True
-            for i in xrange(1, len(quotes)):
-                p = extractPostingForWord(quotes[i])[docId]
-                isNear, entryPos = isPostingsNear(p, nextPos, remain)
-                if isNear == False:
-                    isFound = False
-                    break
-                remain = pos + remain - entryPos
-                nextPos = entryPos
-                print "remain {}".format(remain)
-                print "nextPos {}".format(nextPos)
+        # firstPosting = extractPostingForWord(quotes[0])[docId];
+        # for pos in firstPosting:
+        #     remain = distInt - 1
+        #     nextPos = pos
 
-            if isFound == True:
-                res.add(docId)
-                break
+        #     isFound = True
+        #     for i in xrange(1, len(quotes)):
+        #         p = extractPostingForWord(quotes[i])[docId]
+        #         isNear, entryPos = isPostingsNear(p, nextPos, remain)
+        #         if isNear == False:
+        #             isFound = False
+        #             break
+        #         remain = pos + remain - entryPos
+        #         nextPos = entryPos
+        #         print "remain {}".format(remain)
+        #         print "nextPos {}".format(nextPos)
+
+        #     if isFound == True:
+        #         res.add(docId)
+        #         break
+
     print "answerDocIds: {}".format(res)
     return res
         
@@ -238,7 +275,8 @@ def returnSetIntersection(l):
 
             commonDocIds = list(resSet)
             commonDocIds.sort()
-            print commonDocIds
+            print 'commonDocIdsCount:'
+            print len(commonDocIds)
             return negate(findQuotesDocIds(quote, commonDocIds, distInt), substr)
 
         word = makeWordSimple(word)
@@ -265,33 +303,7 @@ def returnSetIntersection(l):
         elif l[0] == '|':
             return (left | right)
 
-fileRevert = sys.argv[1]
-fileForward = sys.argv[2]
-fileWordPod = sys.argv[3]
 
-r = open(fileRevert, 'rb')
-f = open(fileForward, 'rb')
-wordPos = open(fileWordPod, 'r')
-
-readyRevertIndex = dict()
-readyForwardIndex = dict()
-
-cacheForSearch = dict()
-
-lemmaDict = loadLemmaDict()
-
-for line in wordPos:
-    word, pos = line.split(" ")
-    readyRevertIndex[word] = int(pos)
-    
-flag = True
-while flag:
-    flag, doc_id, doc_title, doc_url = readForwardDocs(f)
-    readyForwardIndex[doc_id] = docInfo(doc_title, doc_url)
-
-
-allDocIds = set(readyForwardIndex.keys())
-ops = ["&", "|", ")", "("]
 
 def getReversed(elements):
     st = Stack()
@@ -354,7 +366,6 @@ def getQueryResult(expr):
         resDocsForUser.append(readyForwardIndex[docId])
     return resDocsForUser
 
-app = Flask(__name__)
 
 @app.route('/')
 def hello_world():
@@ -374,10 +385,15 @@ def showRes(query, page):
     print "query = %s" % query
     start_time = time.time()
     res = getQueryResult(query)
+
+    print 'количество документов'
+    print len(res)
+
     print "--- %s search time" % (time.time() - start_time)
 
     res = [docInfo(unicode(r.title, 'utf-8'), unicode(r.url, 'utf-8')) for r in res]
-        
+    
+
     pages = []
     count = len(res) / 50
     mod = len(res) % 50
@@ -388,8 +404,38 @@ def showRes(query, page):
 
     res = res[(int(page)-1)*50:int(page)*50]
 
-    pages=[i for i in range(1,numPages + 1)]
+    pages = [i for i in range(1,numPages + 1)]
     return render_template('search.html', docs=res, q=query, nums=pages)
 
+
+fileRevert = sys.argv[1]
+fileForward = sys.argv[2]
+fileWordPod = sys.argv[3]
+
+r = open(fileRevert, 'rb')
+f = open(fileForward, 'rb')
+wordPos = open(fileWordPod, 'r')
+
+readyRevertIndex = dict()
+readyForwardIndex = dict()
+cacheForSearch = dict()
+
+lemmaDict = loadLemmaDict()
+
+for line in wordPos:
+    word, pos = line.split(" ")
+    readyRevertIndex[word] = int(pos)
+    
+flag = True
+while flag:
+    flag, doc_id, doc_title, doc_url = readForwardDocs(f)
+    readyForwardIndex[doc_id] = docInfo(doc_title, doc_url)
+
+allDocIds = set(readyForwardIndex.keys())
+ops = ["&", "|", ")", "("]
+
+
 if __name__ == '__main__':
-   app.run()
+    app.run()
+
+
