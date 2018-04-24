@@ -9,6 +9,7 @@ import re
 import time
 import os
 import struct
+import vbcode
 
 app = Flask(__name__)
 
