@@ -10,11 +10,11 @@ import os
 import struct
 import vbcode
 
-def skipBytes(f, lenWord):
+def skipBytes(lenWord):
     read_word = 0
     if lenWord % 4 != 0:
         read_word = 4 - lenWord % 4
-    f.seek(read_word, os.SEEK_CUR)
+    return read_word
 
 def readPosting(r):
     raw_len_word = r.read(4)
@@ -23,8 +23,7 @@ def readPosting(r):
 
     len_word = struct.unpack('<I', raw_len_word)[0]
 
-    word = struct.unpack('{}s0'.format(len_word), r.read(len_word))[0]
-    skipBytes(r, len_word)
+    word = struct.unpack('{}s0I'.format(len_word), r.read(len_word + skipBytes(len_word)))[0]
 
     countEntries = struct.unpack('<I', r.read(4))[0]
 
@@ -55,11 +54,10 @@ while flag == True:
         bytearr = struct.pack('I{}sI'.format(keyLength), keyLength, word, len(values))
         for v in values:
             ent = entries[v]
-            ent.insert(0, len(ent))
             ent.insert(0, v)
 
             bytestream = vbcode.encode(ent)
-            compressed = struct.pack('I{}s'.format(len(bytestream)), len(bytestream), bytestream)
+            compressed = struct.pack('I{}s0I'.format(len(bytestream)), len(bytestream), bytestream)
             bytearr += compressed
 
         w.write(bytearr)

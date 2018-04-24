@@ -9,25 +9,24 @@ import time
 import os
 import struct
 
-def skipBytes(f, lenWord):
+def skipBytes(lenWord):
     read_word = 0
     if lenWord % 4 != 0:
         read_word = 4 - lenWord % 4
-    f.seek(read_word, os.SEEK_CUR)
+    return read_word
 
 def skipPosting(r):
     raw_len_word = r.read(4)
     if raw_len_word == '':
         return False, ""
     len_word = struct.unpack('<I', raw_len_word)[0]
-    word = struct.unpack('{}s0'.format(len_word), r.read(len_word))[0]
-    skipBytes(r, len_word)
+    word = struct.unpack('{}s0I'.format(len_word), r.read(len_word + skipBytes(len_word)))[0]
     countEntries = struct.unpack('<I', r.read(4))[0]
 
     for i in xrange(countEntries):
-        r.seek(4, os.SEEK_CUR)
-        coordsLen = struct.unpack('<I', r.read(4))[0]
-        r.seek(4 * coordsLen, os.SEEK_CUR)
+        compressedLen = struct.unpack('<I', r.read(4))[0]
+        r.seek(compressedLen + skipBytes(compressedLen), os.SEEK_CUR)
+        
     return True, word
 
 fileRevert = sys.argv[1]

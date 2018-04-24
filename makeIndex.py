@@ -55,11 +55,7 @@ def processArticle(line):
             revertIndex[token] = dict()
         if docId not in revertIndex[token]:
             revertIndex[token][docId] = []
-
-        if len(revertIndex[token][docId]) == 0:
-            revertIndex[token][docId].append(i)
-        else:
-            revertIndex[token][docId].append(i - revertIndex[token][docId][-1])
+        revertIndex[token][docId].append(i)
 
 start_time = time.time()
 fileRead = sys.argv[1]

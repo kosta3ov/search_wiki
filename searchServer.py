@@ -71,10 +71,17 @@ def readPosting(r):
     entries = dict()
 
     for i in xrange(countEntries):
-        docId = struct.unpack('<I', r.read(4))[0]
-        coordsLen = struct.unpack('<I', r.read(4))[0]
-        coords = list(struct.unpack('<{}I'.format(coordsLen), r.read(4 * coordsLen)))
+        compressedLen = struct.unpack('<I', r.read(4))[0]
+        compressed = struct.unpack('{}s0'.format(compressedLen), r.read(compressedLen))[0]
+        uncompressed = vbcode.decode(compressed)
+        docId = uncompressed[0]
+        coordsLen = uncompressed[1]
+        coords = uncompressed[2:]
+        for j in xrange(1, len(coords)):
+            coords[j] += coords[j-1]
         entries[docId] = coords
+        
+        skipBytes(r, compressedLen)
 
     return (True, word, entries)
 
