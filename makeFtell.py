@@ -21,19 +21,17 @@ def skipPosting(r):
         return False, ""
     len_word = struct.unpack('<I', raw_len_word)[0]
     word = struct.unpack('{}s0I'.format(len_word), r.read(len_word + skipBytes(len_word)))[0]
-    countEntries = struct.unpack('<I', r.read(4))[0]
 
-    for i in xrange(countEntries):
-        compressedLen = struct.unpack('<I', r.read(4))[0]
-        r.seek(compressedLen + skipBytes(compressedLen), os.SEEK_CUR)
+    lenCompressed = struct.unpack('<I', r.read(4))[0]    
+
+    r.seek(lenCompressed + skipBytes(lenCompressed), os.SEEK_CUR)
         
     return True, word
 
 fileRevert = sys.argv[1]
-fileWordPod = sys.argv[2]
 
 r = open(fileRevert, 'rb')
-wordPos = open(fileWordPod, 'w')
+wordPos = open('{}_positions'.format(fileRevert), 'w')
 
 readyRevertIndex = dict()
 

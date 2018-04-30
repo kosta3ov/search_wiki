@@ -1,5 +1,4 @@
 # -*- encoding: utf-8 -*-
-
 import unidecode
 import unicodedata
 import sys
@@ -9,10 +8,6 @@ import re
 import time
 import os
 import struct
-
-fileRevert = sys.argv[1]
-
-r = open(fileRevert, 'rb')
 
 def skipBytes(f, lenWord):
     read_word = 0
@@ -40,17 +35,24 @@ def readPosting(r):
         entries[docId] = coords
 
     return (True, word, entries)
-    
+
+fileRevert = sys.argv[1]
+
+r = open(fileRevert, 'rb')
+w = open('{}_dist'.format(fileRevert), 'wb')
+
 readyRevertIndex = dict()
 
 flag = True
-while flag:
-    flag, word, posting = readPosting(r)
-    if flag == False:
-        break
-    readyRevertIndex[word] = posting
-
-post = len(readyRevertIndex["москва"].keys())
-print post
-
-
+while flag == True:
+    flag, word, entries = readPosting(r)
+    if flag == True:
+        keyLength = len(word)
+        values = sorted(list(entries.keys()))
+        bytearr = struct.pack('I{}sI'.format(keyLength), keyLength, word, len(values))
+        for v in values:
+            ent = entries[v]
+            for i in reversed(xrange(1, len(ent))):
+                ent[i] = ent[i] - ent[i - 1]
+            bytearr += struct.pack('II{}I'.format(len(ent)), v, len(ent), *ent)
+        w.write(bytearr)

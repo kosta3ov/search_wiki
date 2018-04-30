@@ -10,13 +10,13 @@ import re
 import time
 import os
 import struct
+import vbcode
 
-count = 0
-lengthOfTokens = 0
 tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
 
 lemmaDict = {}
 revertIndex = {}
+forwardIndex = {}
 
 class docInfo:
     title = ''
@@ -41,6 +41,10 @@ def processArticle(line):
     tokens = tokenizer.tokenize(remove_accents(article['text'].lower()))
 
     docId = int(article['id'])
+    title = article['title']
+    url = article['url']
+
+    forwardIndex[docId] = docInfo(title, url)
 
     clearTokens = []
     for i in xrange(len(tokens)):
@@ -58,6 +62,7 @@ def processArticle(line):
         revertIndex[token][docId].append(i)
 
 start_time = time.time()
+
 fileRead = sys.argv[1]
 
 print "--- %s start tokenization" % (time.time() - start_time)
@@ -68,17 +73,43 @@ f = open(fileRead)
 for line in f:
     processArticle(line)  
 
-revIndexFile = open(fileRead + '_revert', 'wb')
+revIndexFile = open(fileRead + '_RevComp', 'wb')
+forwardIndexFile = open(fileRead + '_Forw', 'wb')
 
 allKeys = sorted(revertIndex.keys())
 for key in allKeys:
     values = sorted(list(revertIndex[key].keys()))
     keyLength = len(key)
-    bytearr = struct.pack('I{}sI'.format(keyLength), keyLength, key, len(values))
+    bytearr = struct.pack('I{}s0I'.format(keyLength), keyLength, key)
+
+    dist_v = list(values)
+    for i in reversed(xrange(1, len(dist_v))):
+        dist_v[i] = dist_v[i] - dist_v[i - 1]
+    
+    list_for_compression = [len(values)]
+    for v in dist_v:
+        list_for_compression.append(v)
+
     for v in values:
-        entries = revertIndex[key][v]
-        bytearr += struct.pack('II{}I'.format(len(entries)), v, len(entries), *entries)
+        entries = list(revertIndex[key][v])
+        for i in reversed(xrange(1, len(entries))):
+            entries[i] = entries[i] - entries[i - 1]
+        list_for_compression.append(len(entries))
+        list_for_compression.extend(entries)
+
+    compressed = vbcode.encode(list_for_compression)
+    
+    bytearr += struct.pack('I{}s0I'.format(len(compressed)), len(compressed), compressed)
+
     revIndexFile.write(bytearr)
+
+allDocIds = sorted(forwardIndex.keys())
+
+for docId in allDocIds:
+    title = forwardIndex[docId].title.encode('utf-8')
+    url = forwardIndex[docId].url.encode('utf-8')
+    bytearr = struct.pack('II{}sI{}s0I'.format(len(title), len(url)), docId, len(title), title, len(url), url)
+    forwardIndexFile.write(bytearr)
 
 print "--- %s all time" % (time.time() - start_time)
 

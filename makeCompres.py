@@ -38,10 +38,9 @@ def readPosting(r):
     return (True, word, entries)
 
 fileRevert = sys.argv[1]
-fileRevertWithDistances = sys.argv[2]
 
 r = open(fileRevert, 'rb')
-w = open(fileRevertWithDistances, 'wb')
+w = open('{}_compress'.format(fileRevert), 'wb')
 
 readyRevertIndex = dict()
 
