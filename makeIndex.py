@@ -11,6 +11,7 @@ import time
 import os
 import struct
 import vbcode
+import math
 
 tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
 
@@ -46,14 +47,11 @@ def processArticle(line):
 
     forwardIndex[docId] = docInfo(title, url)
 
-    clearTokens = []
     for i in xrange(len(tokens)):
         token = tokens[i]
         token = token.encode('utf-8')
         if token in lemmaDict:
             token = lemmaDict[token]
-
-        clearTokens.append(token)
 
         if token not in revertIndex:
             revertIndex[token] = dict()
@@ -84,11 +82,15 @@ for key in allKeys:
 
     dist_v = list(values)
     for i in reversed(xrange(1, len(dist_v))):
-        dist_v[i] = dist_v[i] - dist_v[i - 1]
+        dist_v[i] -= dist_v[i - 1]
     
-    list_for_compression = [len(values)]
-    for v in dist_v:
-        list_for_compression.append(v)
+    list_for_compression = [len(dist_v)]
+    list_for_compression.extend(dist_v)
+
+    dist = math.sqrt(len(values))
+    jump_table = values[::dist]
+    for i in reversed(xrange(1, len(jump_table))):
+        jump_table[i] -= jump_table[i - 1]
 
     for v in values:
         entries = list(revertIndex[key][v])
@@ -96,6 +98,9 @@ for key in allKeys:
             entries[i] = entries[i] - entries[i - 1]
         list_for_compression.append(len(entries))
         list_for_compression.extend(entries)
+    
+    list_for_compression.append(len(jump_table))
+    list_for_compression.extend(jump_table)
 
     compressed = vbcode.encode(list_for_compression)
     

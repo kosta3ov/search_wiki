@@ -111,7 +111,12 @@ def readPosting(r):
         # смещение индекса на начало следующего списка вхождений (а именно на значение длинны следующего списка)
         j += lenEntries
 
-    return (True, word, entries)
+    lenJumpTable = decompressed[j]
+    jump_table = decompressed[j + 1 : j + 1 + lenJumpTable]
+    for i in xrange(1, len(jump_table)):
+        jump_table[i] += jump_table[i - 1]
+
+    return (True, word, entries, jump_table)
 
 def readForwardDocs(f):
     # читаем первую длину слова пока можем
@@ -153,9 +158,9 @@ def extractPostingForWord(word):
         # смещение в нужную позицию
         r.seek(pos)
         # чтение постинга из позиции
-        suc, word, posting = readPosting(r)
+        suc, word, posting, jumps = readPosting(r)
         # обновление кэша поиска прочитанным постингом
-        cacheForSearch[word] = posting
+        cacheForSearch[word] = (posting, jumps)
         return posting
     else:
         # возращаем из кэша
@@ -164,12 +169,15 @@ def extractPostingForWord(word):
 # возвращает docID для слова с учетом отрицания
 def returnSetIndexFromWord(word, substr):
     res = set()
+    jump_table = list()
     # если слово есть на диске
     if word in readyRevertIndex:
         # извлекаем постинг, а из него все docID, из которых составляем сэт
-        res = set(extractPostingForWord(word).keys())
+        posting, jump_table = extractPostingForWord(word)
+        res = set(posting.keys())
+
     # вычисление набора с учетом отрицания
-    return negate(res, substr)
+    return negate(res, substr), jump_table
 
 # обновление индексов при поиске цитат
 def updateIndexes(quotes, docID, distance):
@@ -179,7 +187,7 @@ def updateIndexes(quotes, docID, distance):
         indexes.append(0)
 
     # составление списка списков всех вхождений слов из цитаты 
-    entries = [extractPostingForWord(q)[docID] for q in quotes]
+    entries = [extractPostingForWord(q)[0][docID] for q in quotes]
     # составление списка позиций соответствующих начальным индексам
     positions = list()
     for i in xrange(len(indexes)):
@@ -273,8 +281,11 @@ def returnSetIntersection(l):
             # поиск общих документов
             if quote.count != 0:
                 firstWord = quote[0]
-                resSet = returnSetIndexFromWord(firstWord, False)
-                for q in quote:
+                resSet, jumps = returnSetIndexFromWord(firstWord, False)
+
+                for j in xrange(1, len(quote)):
+                    q = quote[j]
+                    
                     resSet = resSet & returnSetIndexFromWord(q, False)
 
             commonDocIds = list(resSet)
@@ -304,8 +315,8 @@ def returnSetIntersection(l):
             start = new_start
 
         # вернуть результат для левой и правой части
-        left = returnSetIntersection(l[1:start])
-        right = returnSetIntersection(l[start:])
+        left, jumps_l = returnSetIntersection(l[1:start])
+        right, jumps_r = returnSetIntersection(l[start:])
         
         # применить соответствующую операцию
         if l[0] == '&':
