@@ -10,6 +10,8 @@ import time
 import os
 import struct
 import vbcode
+import math
+import operator
 
 app = Flask(__name__)
 
@@ -17,9 +19,10 @@ app = Flask(__name__)
 class docInfo:
     title = ''
     url = ''
-    def __init__(self, title, url):
+    def __init__(self, title, url, docLen):
         self.title = title
         self.url = url
+        self.docLen = docLen
     def __str__(self):
         return self.title + " " + self.url
 
@@ -117,7 +120,7 @@ def readForwardDocs(f):
     # читаем первую длину слова пока можем
     raw_doc_id = f.read(4)
     if raw_doc_id == '':
-        return (False, 0, "", "")
+        return (False, 0, "", "", 0)
 
     # чтение информации о статье
     doc_id = struct.unpack('<I', raw_doc_id)[0]
@@ -125,8 +128,8 @@ def readForwardDocs(f):
     doc_title = struct.unpack('{}s0I'.format(len_title), f.read(len_title + skipBytes(len_title)))[0]
     len_url = struct.unpack('<I', f.read(4))[0]
     doc_url = struct.unpack('{}s0I'.format(len_url), f.read(len_url + skipBytes(len_url)))[0]
-
-    return (True, doc_id, doc_title, doc_url)
+    docLen = struct.unpack('<I', f.read(4))[0]
+    return (True, doc_id, doc_title, doc_url, docLen)
 
 # упрощает слово (убирает капитализацию, ударения, приводит к нормальной форме)
 def makeWordSimple(word):
@@ -346,13 +349,7 @@ def getReversed(elements):
     answer.reverse()
     return answer
 
-# обработка запроса
-def getQueryResult(expr):
-    #парсинг запроса
-    elements = re.findall(u'!?"[a-zA-Zа-яА-Я0-9\s]+"(?:\d+)?|!?\d+(?:[-,.]\d+)*|!?[a-zа-яА-ЯA-Z0-9]+|[&|()]', expr)
-    for j in elements:
-        print j
-    
+def boolSearch(elements):
     # вставка & в пустых местах
     i = 0
     while i < len(elements) - 1:
@@ -362,21 +359,90 @@ def getQueryResult(expr):
             elements.insert(i+1, '&')
         i += 1
 
+    # получение обратной записи
+    answer = getReversed(elements)
+    
+    # получение результата поиска
+    resDocs = list(returnSetIntersection(answer))
+
+    scores = dict()
+    for docId in resDocs:
+        scores[docId] = 0
+    
+    terms = [el for el in elements if el not in ops]
+    terms = set(terms)
+    for t in terms:
+        t = makeWordSimple(t)
+        post = extractPostingForWord(t)
+
+        idf = math.log(allDocsCount / len(post.keys()))
+        for docId in post.keys():
+            if docId in scores:
+                tf = len(post[docId])
+                wf = 0
+                if tf > 0:
+                    wf = 1 + math.log(tf)
+                wfidf = wf * idf
+
+                scores[docId] += wfidf
+
+    sorted_scores = sorted(scores.iteritems(), key=operator.itemgetter(1), reverse=True)
+    return [score_id for score_id, score_num in sorted_scores]
+
+def blurrySearch(elements):
+    scores = dict()
+    terms = set(elements)
+    for t in terms:
+        t = makeWordSimple(t)
+        post = extractPostingForWord(t)
+
+        idf = math.log(allDocsCount / len(post.keys()))
+        for docId in post.keys():
+            tf = len(post[docId])
+            wf = 0
+            if tf > 0:
+                wf = 1 + math.log(tf)
+            wfidf = wf * idf
+            
+            if docId not in scores:
+                scores[docId] = wfidf
+            else:
+                scores[docId] += wfidf
+    
+    # for docId in scores.keys():
+    #     l = readyForwardIndex[docId].docLen
+    #     scores[docId] /= l
+    
+    sorted_scores = sorted(scores.iteritems(), key=operator.itemgetter(1), reverse=True)
+    return [score_id for score_id, score_num in sorted_scores]
+
+
+# обработка запроса
+def getQueryResult(expr):
+    #парсинг запроса
+    elements = re.findall(u'!?"[a-zA-Zа-яА-Я0-9\s]+"(?:\d+)?|!?\d+(?:[-,.]\d+)*|!?[a-zа-яА-ЯA-Z0-9]+|[&|()]', expr)
+    for j in elements:
+        print j
+    
+    isBoolSearch = False
+    for el in elements:
+        if el in ops:
+            isBoolSearch = True
+            break
+    
     for j in elements:
         print j
 
-    # получение обратной записи
-    answer = getReversed(elements)
-    # получение результата поиска
-    res = returnSetIntersection(answer)
-    resDocs = list(res)
-    resDocs.sort()
-    
-    # составление выдачи по docID's
     resDocsForUser = []
-    for docId in resDocs:
-        resDocsForUser.append(readyForwardIndex[docId])
-    return resDocsForUser
+
+    if isBoolSearch:
+        resDocsForUser = boolSearch(elements)
+    else: 
+        print 'blurry search'
+        resDocsForUser = blurrySearch(elements)
+
+    # составление выдачи по docID's
+    return [readyForwardIndex[docId] for docId in resDocsForUser]
 
 # стартовая страница
 @app.route('/')
@@ -402,12 +468,11 @@ def showRes(query, page):
     # получение docID удовлетворяющих запросу
     res = getQueryResult(query)
 
-    print 'количество документов'
-    print len(res)
+    print 'количество документов: {}'.format(len(res))
 
     print "--- %s search time" % (time.time() - start_time)
 
-    res = [docInfo(unicode(r.title, 'utf-8'), unicode(r.url, 'utf-8')) for r in res]
+    res = [docInfo(unicode(r.title, 'utf-8'), unicode(r.url, 'utf-8'), r.docLen) for r in res]
     
     pages = []
     count = len(res) / 50
@@ -452,11 +517,12 @@ for line in wordPos:
 # заполнение словаря прямого индекса
 flag = True
 while flag:
-    flag, doc_id, doc_title, doc_url = readForwardDocs(f)
-    readyForwardIndex[doc_id] = docInfo(doc_title, doc_url)
+    flag, doc_id, doc_title, doc_url, doc_len = readForwardDocs(f)
+    readyForwardIndex[doc_id] = docInfo(doc_title, doc_url, doc_len)
 
 # все docID документов
 allDocIds = set(readyForwardIndex.keys())
+allDocsCount = len(allDocIds)
 
 # операнды для парсинга
 ops = ["&", "|", ")", "("]

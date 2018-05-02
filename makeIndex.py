@@ -21,9 +21,11 @@ forwardIndex = {}
 class docInfo:
     title = ''
     url = ''
-    def __init__(self, title, url):
+    docLen = 0
+    def __init__(self, title, url, docLen):
         self.title = title
         self.url = url
+        self.docLen = docLen
 
 def loadLemmaDict():
     f1 = open("uniq_words_union", 'r')
@@ -44,7 +46,7 @@ def processArticle(line):
     title = article['title']
     url = article['url']
 
-    forwardIndex[docId] = docInfo(title, url)
+    forwardIndex[docId] = docInfo(title, url, len(tokens))
 
     clearTokens = []
     for i in xrange(len(tokens)):
@@ -108,7 +110,8 @@ allDocIds = sorted(forwardIndex.keys())
 for docId in allDocIds:
     title = forwardIndex[docId].title.encode('utf-8')
     url = forwardIndex[docId].url.encode('utf-8')
-    bytearr = struct.pack('II{}sI{}s0I'.format(len(title), len(url)), docId, len(title), title, len(url), url)
+    docLen = forwardIndex[docId].docLen
+    bytearr = struct.pack('II{}sI{}s0II'.format(len(title), len(url)), docId, len(title), title, len(url), url, docLen)
     forwardIndexFile.write(bytearr)
 
 print "--- %s all time" % (time.time() - start_time)
