@@ -90,14 +90,30 @@ def readPosting(r):
     # создание пустого постинга (docID-entries)
     entries = dict()
 
+    # получаем зоны
+    zonesList = decompressed[1:countEntries + 1]
     # индекс начала списков вхождений
-    j = countEntries + 1
+    j = 2 * countEntries + 1
     # обновляем докайди промежутками
-    for i in xrange(2, countEntries + 1):
+    k = 0
+    for i in xrange(countEntries + 1, 2 * countEntries + 1):
         decompressed[i] += decompressed[i - 1]
+        docId = decompressed[i]
+        inZone = zonesList[k]
+        k += 1
+        if inZone == 1:
+            if docId not in zoneIndex:
+                zoneIndex[docId] = {word}
+            else:
+                zoneIndex[docId].add(word) 
+        else:
+            if docId not in zoneIndex:
+                zoneIndex[docId] = set()
+            
+        
 
     # обработка списков вхождений и постингов
-    for i in xrange(1, countEntries + 1):
+    for i in xrange(countEntries + 1, 2 * countEntries + 1):
         # запоминание постинга (docID)
         docId = decompressed[i]
         # создание пустого списка для позиций
@@ -396,24 +412,30 @@ def blurrySearch(elements):
         t = makeWordSimple(t)
         post = extractPostingForWord(t)
 
-        idf = math.log(allDocsCount / len(post.keys()))
+        idf = math.log10(allDocsCount / len(post.keys()))
+        print idf
         for docId in post.keys():
             tf = len(post[docId])
             wf = 0
             if tf > 0:
-                wf = 1 + math.log(tf)
+                wf = 1 + math.log10(tf)
             wfidf = wf * idf
             
             if docId not in scores:
                 scores[docId] = wfidf
             else:
                 scores[docId] += wfidf
+
+            if t in zoneIndex[docId]:
+                scores[docId] += wfidf
+
     
     # for docId in scores.keys():
     #     l = readyForwardIndex[docId].docLen
     #     scores[docId] /= l
     
     sorted_scores = sorted(scores.iteritems(), key=operator.itemgetter(1), reverse=True)
+    print sorted_scores[:20]
     return [score_id for score_id, score_num in sorted_scores]
 
 
@@ -505,6 +527,8 @@ readyRevertIndex = dict()
 readyForwardIndex = dict()
 # словарь для кэша слов запроса
 cacheForSearch = dict()
+# словарь для зон
+zoneIndex = dict()
 
 # загрузка словаря лематизации
 lemmaDict = loadLemmaDict()

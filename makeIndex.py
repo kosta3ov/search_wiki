@@ -17,6 +17,7 @@ tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[
 lemmaDict = {}
 revertIndex = {}
 forwardIndex = {}
+titleZoneIndex = {}
 
 class docInfo:
     title = ''
@@ -41,21 +42,26 @@ def remove_accents(input_str):
 def processArticle(line):
     article = json.loads(line)
     tokens = tokenizer.tokenize(remove_accents(article['text'].lower()))
+    titleTokens = tokenizer.tokenize(remove_accents(article['title'].lower()))
 
     docId = int(article['id'])
     title = article['title']
     url = article['url']
 
-    forwardIndex[docId] = docInfo(title, url, len(tokens))
+    titleZoneIndex[docId] = set()
 
-    clearTokens = []
-    for i in xrange(len(tokens)):
-        token = tokens[i]
-        token = token.encode('utf-8')
+    for i in xrange(len(titleTokens)):
+        token = titleTokens[i].encode('utf-8')
         if token in lemmaDict:
             token = lemmaDict[token]
+        titleZoneIndex[docId].add(token)
+        
+    forwardIndex[docId] = docInfo(title, url, len(tokens))
 
-        clearTokens.append(token)
+    for i in xrange(len(tokens)):
+        token = tokens[i].encode('utf-8')
+        if token in lemmaDict:
+            token = lemmaDict[token]
 
         if token not in revertIndex:
             revertIndex[token] = dict()
@@ -84,14 +90,22 @@ for key in allKeys:
     keyLength = len(key)
     bytearr = struct.pack('I{}s0I'.format(keyLength), keyLength, key)
 
+    title_zones = []
+
+    for v in values:
+        if key in titleZoneIndex[v]:
+            title_zones.append(1)
+        else:
+            title_zones.append(0)
+
     dist_v = list(values)
     for i in reversed(xrange(1, len(dist_v))):
         dist_v[i] = dist_v[i] - dist_v[i - 1]
-    
-    list_for_compression = [len(values)]
-    for v in dist_v:
-        list_for_compression.append(v)
 
+    list_for_compression = [len(values)]
+    list_for_compression.extend(title_zones)
+    list_for_compression.extend(dist_v)
+    
     for v in values:
         entries = list(revertIndex[key][v])
         for i in reversed(xrange(1, len(entries))):
