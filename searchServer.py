@@ -130,7 +130,12 @@ def readPosting(r):
         # смещение индекса на начало следующего списка вхождений (а именно на значение длинны следующего списка)
         j += lenEntries
 
-    return (True, word, entries)
+    # j на месте skipList len
+    skipListLen = decompressed[j]
+    skipList = decompressed[j + 1 : j + 1 + skipListLen]
+
+    # добавил скип листы
+    return (True, word, entries, skipList)
 
 def readForwardDocs(f):
     # читаем первую длину слова пока можем
@@ -157,11 +162,8 @@ def makeWordSimple(word):
     return word
 
 # Отрицание результата 
-def negate(res, substr):
-    if substr == True:
-        return allDocIds - res
-    else:
-        return res
+def negate(res):
+    return allDocIds - res
 
 # извлечение постинга из слова
 def extractPostingForWord(word):
@@ -172,23 +174,23 @@ def extractPostingForWord(word):
         # смещение в нужную позицию
         r.seek(pos)
         # чтение постинга из позиции
-        suc, word, posting = readPosting(r)
+        suc, word, posting, skipList = readPosting(r)
         # обновление кэша поиска прочитанным постингом
-        cacheForSearch[word] = posting
-        return posting
-    else:
-        # возращаем из кэша
-        return cacheForSearch[word]
+        cacheForSearch[word] = (posting, skipList)
+    # возращаем из кэша
+    return cacheForSearch[word]
 
 # возвращает docID для слова с учетом отрицания
-def returnSetIndexFromWord(word, substr):
-    res = set()
+def indexFromWord(word):
+    res = list()
+    skipList = list()
     # если слово есть на диске
     if word in readyRevertIndex:
         # извлекаем постинг, а из него все docID, из которых составляем сэт
-        res = set(extractPostingForWord(word).keys())
-    # вычисление набора с учетом отрицания
-    return negate(res, substr)
+        posting, skipList = extractPostingForWord(word)
+        res = posting.keys()
+
+    return res, skipList
 
 # обновление индексов при поиске цитат
 def updateIndexes(quotes, docID, distance):
@@ -198,7 +200,7 @@ def updateIndexes(quotes, docID, distance):
         indexes.append(0)
 
     # составление списка списков всех вхождений слов из цитаты 
-    entries = [extractPostingForWord(q)[docID] for q in quotes]
+    entries = [extractPostingForWord(q)[0][docID] for q in quotes]
     # составление списка позиций соответствующих начальным индексам
     positions = list()
     for i in xrange(len(indexes)):
@@ -229,8 +231,10 @@ def updateIndexes(quotes, docID, distance):
 # поиск цитат   
 def findQuotesDocIds(quotes, commonDocIds, distInt):
     res = set()
+    print quotes
     # если дистанция меньше исходного количества слов то возвращаем пустой сэт
     if (distInt < len(quotes)):
+        print "qqqqqqqqq"
         return res
     # если цитата из одного слова - возвращаем список docID's для это слова
     if (len(quotes) == 1):
@@ -246,6 +250,73 @@ def findQuotesDocIds(quotes, commonDocIds, distInt):
 
     print "answerDocIds: {}".format(res)
     return res
+
+def skip(itSkip, val, skiplist, array):
+    while itSkip < len(skiplist) and array[skiplist[itSkip]] <= val:
+        itSkip += 1
+    if itSkip < len(skiplist):
+        return itSkip
+    else:
+        return -1
+
+def intersectLists(left, lSkip, right, rSkip):
+    print 'instersectLists'
+    it1 = 0
+    it2 = 0
+
+    it1skip = 0
+    it2skip = 0
+
+    left.sort()
+    right.sort()
+
+    res = set()
+    while it1 < len(left) and it2 < len(right):
+        if left[it1] == right[it2]:
+            res.add(left[it1])
+            it1 += 1
+            it2 += 1
+        elif left[it1] < right[it2]:
+            it1skip = skip(it1skip, left[it1], lSkip, left)
+            while it1skip != -1 and left[lSkip[it1skip]] < right[it2]:
+                it1 = lSkip[it1skip]
+                it1skip = skip(it1skip, left[it1], lSkip, left)
+            else:
+                it1 += 1  
+        else:
+            it2skip = skip(it2skip, right[it2], rSkip, right)
+            while it2skip != -1 and right[rSkip[it2skip]] < left[it1]:
+                it2 = rSkip[it2skip]
+                it2skip = skip(it2skip, right[it2], rSkip, right)
+            else:
+                it2 += 1 
+    print res 
+    return res
+
+def returnQuoteWordsAndDistance(word):
+    # позиции кавычек
+    quotePos = []
+    for m in re.finditer('"', word):
+        quotePos.append(m.start());
+    
+    # отделение содержимого кавычек от кавычек
+    words = word[quotePos[0] + 1 : quotePos[1]]
+
+    # хвост цитаты (то что после кавычек - дистанция)
+    tail = ""
+
+    #парсинг внутри кавычек
+    quote = re.findall(u'[a-zа-яА-ЯA-Z0-9]+|\d+(?:[-,.]\d+)*', words)
+
+    # определение дистанции
+    distInt = len(quote)
+    if len(word) > (quotePos[1] + 1):
+        tail = word[quotePos[1]+1:]
+        distString = re.findall('\d+', tail)[0]
+        distInt = int(distString)
+
+    return (quote, distInt)
+
         
 # основная функция поиска
 def returnSetIntersection(l):
@@ -263,50 +334,31 @@ def returnSetIntersection(l):
         countQuotes = word.count('"')
         # если цитата (количество кавычек в запросе = 2)
         if countQuotes == 2:
-            # позиции кавычек
-            quotePos = []
-            for m in re.finditer('"', word):
-                quotePos.append(m.start());
-            
-            # отделение содержимого кавычек от кавычек
-            words = word[quotePos[0] + 1 : quotePos[1]]
+            # очищение цитаты от кавычек и определение дистанции
+            quote, distInt = returnQuoteWordsAndDistance(word)
+            quoteCopy = [makeWordSimple(q) for q in quote]
 
-            # хвост цитаты (то что после кавычек - дистанция)
-            tail = ""
-
-            #парсинг внутри кавычек
-            quote = re.findall(u'[a-zа-яА-ЯA-Z0-9]+|\d+(?:[-,.]\d+)*', words)
-            # обработка слов цитаты
-            quote = [makeWordSimple(q) for q in quote]
-            print quote
-
-            # определение дистанции
-            distInt = len(quote)
-            if len(word) > (quotePos[1] + 1):
-                tail = word[quotePos[1]+1:]
-                distString = re.findall('\d+', tail)[0]
-                distInt = int(distString)
-        
-            # множество для поиска общих документов
-            resSet = set()
+            print "distInt {}".format(distInt)
             # поиск общих документов
-            if quote.count != 0:
-                firstWord = quote[0]
-                resSet = returnSetIndexFromWord(firstWord, False)
-                for q in quote:
-                    resSet = resSet & returnSetIndexFromWord(q, False)
-
-            commonDocIds = list(resSet)
-            commonDocIds.sort()
-            print 'commonDocIdsCount:'
-            print len(commonDocIds)
+            print quote
+            resList = returnDocIdsForElements(quote)
+            resList.sort()
+            print "resList: {}".format(resList)
             # поиск цитаты по общим документам с указанной дистанцией (по-умолчанию дистанция = количеству слов цитаты)
-            return negate(findQuotesDocIds(quote, commonDocIds, distInt), substr)
+            if substr == True:
+                return negate(findQuotesDocIds(quoteCopy, resList, distInt)), list()
+            else:
+                return findQuotesDocIds(quoteCopy, resList, distInt), list()
 
         # слово - не цитата, берем и упрощаем его
         word = makeWordSimple(word)
+        print word
         # поиск документов содержащих данное слово
-        return returnSetIndexFromWord(word, substr)        
+        if substr == True:
+            postingKeys, skip = indexFromWord(word)
+            return negate(set(postingKeys)), list()
+        else:
+            return indexFromWord(word)
     else:
         # хитрое разделение запроса на 2 части
         start = 1
@@ -323,14 +375,22 @@ def returnSetIntersection(l):
             start = new_start
 
         # вернуть результат для левой и правой части
-        left = returnSetIntersection(l[1:start])
-        right = returnSetIntersection(l[start:])
+        left, lSkip = returnSetIntersection(l[1:start])
+        right, rSkip = returnSetIntersection(l[start:])
         
-        # применить соответствующую операцию
-        if l[0] == '&':
-            return (left & right)
-        elif l[0] == '|':
-            return (left | right)
+        if len(lSkip) != 0 and len(rSkip) != 0 and l[0] == '&':
+            return intersectLists(left, lSkip, right, rSkip), list()
+        else:
+            if len(lSkip) != 0:
+                left = set(left)
+            if len(rSkip) != 0:
+                right = set(right)
+
+            # применить соответствующую операцию 
+            if l[0] == '&':
+                return (left & right), list()
+            elif l[0] == '|':
+                return (left | right), list()
 
 # получение обратной польской записи через стэк
 def getReversed(elements):
@@ -365,42 +425,65 @@ def getReversed(elements):
     answer.reverse()
     return answer
 
-def boolSearch(elements):
-    # вставка & в пустых местах
+def insertAndOperation(elements):
     i = 0
+    
     while i < len(elements) - 1:
         l1 = elements[i]
-        l2 = elements[i+1]
+        l2 = elements[i + 1]
         if (l1 not in ops or l1 == ')') and (l2 not in ops or l2 == '('):
-            elements.insert(i+1, '&')
+            elements.insert(i + 1, '&')
         i += 1
 
+# !!!!!! изменяет elements
+def returnDocIdsForElements(elements):
+    # вставка & в пустых местах
+    insertAndOperation(elements)
     # получение обратной записи
     answer = getReversed(elements)
-    
     # получение результата поиска
-    resDocs = list(returnSetIntersection(answer))
+    print answer
+    resDocs = list(returnSetIntersection(answer)[0])
+    return resDocs
+
+def boolSearch(elements):
+    resDocs = returnDocIdsForElements(elements)
 
     scores = dict()
     for docId in resDocs:
         scores[docId] = 0
+
+    clearElements = []
+    for el in elements:
+        if el.count('"') == 2:
+            words, dist = returnQuoteWordsAndDistance(el)
+            clearElements.extend(words)
+        elif el not in ops:
+            clearElements.append(el)
+        else:
+            continue
     
-    terms = [el for el in elements if el not in ops]
-    terms = set(terms)
+    terms = set(clearElements)
+
     for t in terms:
         t = makeWordSimple(t)
-        post = extractPostingForWord(t)
+        post = extractPostingForWord(t)[0]
 
         idf = math.log(allDocsCount / len(post.keys()))
         for docId in post.keys():
             if docId in scores:
-                tf = len(post[docId])
+                # нормирование tf по длине документа
+                tf = len(post[docId]) / float(readyForwardIndex[docId].docLen)
                 wf = 0
                 if tf > 0:
                     wf = 1 + math.log(tf)
                 wfidf = wf * idf
 
-                scores[docId] += wfidf
+                # настройка бонусов за тайтлы
+                if t in zoneIndex[docId]:
+                    scores[docId] += 1000
+                else:
+                    scores[docId] += wfidf
 
     sorted_scores = sorted(scores.iteritems(), key=operator.itemgetter(1), reverse=True)
     return [score_id for score_id, score_num in sorted_scores]
@@ -410,30 +493,27 @@ def blurrySearch(elements):
     terms = set(elements)
     for t in terms:
         t = makeWordSimple(t)
-        post = extractPostingForWord(t)
+        post = extractPostingForWord(t)[0]
 
         idf = math.log10(allDocsCount / len(post.keys()))
         print idf
         for docId in post.keys():
-            tf = len(post[docId])
+            # нормирование tf по длине документа
+            tf = len(post[docId]) / float(readyForwardIndex[docId].docLen)
             wf = 0
             if tf > 0:
                 wf = 1 + math.log10(tf)
-            wfidf = wf * idf
+            wfidf = tf * idf
             
             if docId not in scores:
                 scores[docId] = wfidf
             else:
                 scores[docId] += wfidf
 
+            # настройка бонусов за тайтлы
             if t in zoneIndex[docId]:
-                scores[docId] += wfidf
+                scores[docId] += 1000
 
-    
-    # for docId in scores.keys():
-    #     l = readyForwardIndex[docId].docLen
-    #     scores[docId] /= l
-    
     sorted_scores = sorted(scores.iteritems(), key=operator.itemgetter(1), reverse=True)
     print sorted_scores[:20]
     return [score_id for score_id, score_num in sorted_scores]
@@ -443,12 +523,10 @@ def blurrySearch(elements):
 def getQueryResult(expr):
     #парсинг запроса
     elements = re.findall(u'!?"[a-zA-Zа-яА-Я0-9\s]+"(?:\d+)?|!?\d+(?:[-,.]\d+)*|!?[a-zа-яА-ЯA-Z0-9]+|[&|()]', expr)
-    for j in elements:
-        print j
-    
+
     isBoolSearch = False
     for el in elements:
-        if el in ops:
+        if el in ops or el.count('"') == 2:
             isBoolSearch = True
             break
     

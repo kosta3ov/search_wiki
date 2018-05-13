@@ -11,6 +11,7 @@ import time
 import os
 import struct
 import vbcode
+import math
 
 tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
 
@@ -102,6 +103,8 @@ for key in allKeys:
     for i in reversed(xrange(1, len(dist_v))):
         dist_v[i] = dist_v[i] - dist_v[i - 1]
 
+    skipList = range(0, len(values), int(math.sqrt(len(values))))
+    
     list_for_compression = [len(values)]
     list_for_compression.extend(title_zones)
     list_for_compression.extend(dist_v)
@@ -112,6 +115,9 @@ for key in allKeys:
             entries[i] = entries[i] - entries[i - 1]
         list_for_compression.append(len(entries))
         list_for_compression.extend(entries)
+
+    list_for_compression.append(len(skipList))
+    list_for_compression.extend(skipList)
 
     compressed = vbcode.encode(list_for_compression)
     
