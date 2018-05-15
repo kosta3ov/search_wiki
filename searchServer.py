@@ -96,6 +96,9 @@ def readPosting(r):
     j = 2 * countEntries + 1
     # обновляем докайди промежутками
     k = 0
+
+    start_time = time.time()
+
     for i in xrange(countEntries + 1, 2 * countEntries + 1):
         decompressed[i] += decompressed[i - 1]
         docId = decompressed[i]
@@ -133,6 +136,9 @@ def readPosting(r):
     # j на месте skipList len
     skipListLen = decompressed[j]
     skipList = decompressed[j + 1 : j + 1 + skipListLen]
+
+    print "--- %s dist time" % (time.time() - start_time)
+
 
     # добавил скип листы
     return (True, word, entries, skipList)
@@ -231,10 +237,10 @@ def updateIndexes(quotes, docID, distance):
 # поиск цитат   
 def findQuotesDocIds(quotes, commonDocIds, distInt):
     res = set()
-    print quotes
+
     # если дистанция меньше исходного количества слов то возвращаем пустой сэт
     if (distInt < len(quotes)):
-        print "qqqqqqqqq"
+
         return res
     # если цитата из одного слова - возвращаем список docID's для это слова
     if (len(quotes) == 1):
@@ -290,7 +296,6 @@ def intersectLists(left, lSkip, right, rSkip):
                 it2skip = skip(it2skip, right[it2], rSkip, right)
             else:
                 it2 += 1 
-    print res 
     return res
 
 def returnQuoteWordsAndDistance(word):
@@ -343,7 +348,6 @@ def returnSetIntersection(l):
             print quote
             resList = returnDocIdsForElements(quote)
             resList.sort()
-            print "resList: {}".format(resList)
             # поиск цитаты по общим документам с указанной дистанцией (по-умолчанию дистанция = количеству слов цитаты)
             if substr == True:
                 return negate(findQuotesDocIds(quoteCopy, resList, distInt)), list()
@@ -496,7 +500,6 @@ def blurrySearch(elements):
         post = extractPostingForWord(t)[0]
 
         idf = math.log10(allDocsCount / len(post.keys()))
-        print idf
         for docId in post.keys():
             # нормирование tf по длине документа
             tf = len(post[docId]) / float(readyForwardIndex[docId].docLen)
