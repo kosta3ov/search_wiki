@@ -109,26 +109,21 @@ def readPosting(r):
         else:
             if docId not in zoneIndex:
                 zoneIndex[docId] = set()
-            
-        
 
-    # обработка списков вхождений и постингов
-    for i in xrange(countEntries + 1, 2 * countEntries + 1):
-        # запоминание постинга (docID)
-        docId = decompressed[i]
-        # создание пустого списка для позиций
         entries[docId] = list()
         # берем очередную длину списка вхождений для docId
         lenEntries = decompressed[j]
         # индекс начала списка вхождений 
         j += 1
         # обновление промежутков вхождений
-        for k in xrange(j + 1, j + lenEntries):
-            decompressed[k] += decompressed[k - 1]
+        for l in xrange(j + 1, j + lenEntries):
+            decompressed[l] += decompressed[l - 1]
         # обновление списка вхождений
         entries[docId].extend(decompressed[j : j + lenEntries])
         # смещение индекса на начало следующего списка вхождений (а именно на значение длинны следующего списка)
         j += lenEntries
+            
+        
 
     return (True, word, entries)
 
