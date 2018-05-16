@@ -96,6 +96,9 @@ def readPosting(r):
     j = 2 * countEntries + 1
     # обновляем докайди промежутками
     k = 0
+
+    start_time = time.time()
+
     for i in xrange(countEntries + 1, 2 * countEntries + 1):
         decompressed[i] += decompressed[i - 1]
         docId = decompressed[i]
@@ -122,7 +125,8 @@ def readPosting(r):
         entries[docId].extend(decompressed[j : j + lenEntries])
         # смещение индекса на начало следующего списка вхождений (а именно на значение длинны следующего списка)
         j += lenEntries
-            
+
+    print "--- %s dist time" % (time.time() - start_time)
         
 
     return (True, word, entries)
