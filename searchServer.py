@@ -82,7 +82,10 @@ def readPosting(r):
     # прочитали зажатую строку
     compressed = struct.unpack('{}s0I'.format(lenCompressed), r.read(lenCompressed + skipBytes(lenCompressed)))[0]
     # раскодировка данных
+
+    start_time = time.time()
     decompressed = vbcode.decode(compressed)
+    print "--- %s decompress time" % (time.time() - start_time)
 
     # количество постинг листов
     countEntries = decompressed[0]
@@ -92,6 +95,7 @@ def readPosting(r):
 
     # получаем зоны
     zonesList = decompressed[1:countEntries + 1]
+
     # индекс начала списков вхождений
     j = 2 * countEntries + 1
     # обновляем докайди промежутками
@@ -485,7 +489,7 @@ def boolSearch(elements):
 
                 # настройка бонусов за тайтлы
                 if t in zoneIndex[docId]:
-                    scores[docId] += 1000
+                    scores[docId] += 20 * wfidf
                 else:
                     scores[docId] += wfidf
 
@@ -515,7 +519,7 @@ def blurrySearch(elements):
 
             # настройка бонусов за тайтлы
             if t in zoneIndex[docId]:
-                scores[docId] += 1000
+                scores[docId] += 19 * wfidf
 
     sorted_scores = sorted(scores.iteritems(), key=operator.itemgetter(1), reverse=True)
     print sorted_scores[:20]
