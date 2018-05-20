@@ -14,11 +14,13 @@ import vbcode
 import math
 
 tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
+sentencer = RegexpTokenizer(u'[^\.\!\?]*[\.\!\?]')
 
 lemmaDict = {}
 revertIndex = {}
 forwardIndex = {}
 titleZoneIndex = {}
+allSenteces = {}
 
 class docInfo:
     title = ''
@@ -42,33 +44,47 @@ def remove_accents(input_str):
 
 def processArticle(line):
     article = json.loads(line)
-    tokens = tokenizer.tokenize(remove_accents(article['text'].lower()))
-    titleTokens = tokenizer.tokenize(remove_accents(article['title'].lower()))
 
     docId = int(article['id'])
     title = article['title']
     url = article['url']
 
-    titleZoneIndex[docId] = set()
+    allSenteces[docId] = list()
 
+    tokensCount = 0
+
+    sentences = sentencer.tokenize(remove_accents(article['text'].lower()))
+
+    for i in xrange(0, len(sentences)):
+        sen = sentences[i]
+
+        tokens = tokenizer.tokenize(sen)
+
+        allSenteces[docId].append(u" ".join(tokens))
+
+        tokensCount += len(tokens)
+
+        for j in xrange(len(tokens)):
+            token = tokens[j].encode('utf-8')
+            if token in lemmaDict:
+                token = lemmaDict[token]
+
+            if token not in revertIndex:
+                revertIndex[token] = dict()
+            if docId not in revertIndex[token]:
+                revertIndex[token][docId] = []
+            revertIndex[token][docId].append(j)
+
+    forwardIndex[docId] = docInfo(title, url, tokensCount)
+
+
+    titleTokens = tokenizer.tokenize(remove_accents(article['title'].lower()))
+    titleZoneIndex[docId] = set()
     for i in xrange(len(titleTokens)):
         token = titleTokens[i].encode('utf-8')
         if token in lemmaDict:
             token = lemmaDict[token]
         titleZoneIndex[docId].add(token)
-        
-    forwardIndex[docId] = docInfo(title, url, len(tokens))
-
-    for i in xrange(len(tokens)):
-        token = tokens[i].encode('utf-8')
-        if token in lemmaDict:
-            token = lemmaDict[token]
-
-        if token not in revertIndex:
-            revertIndex[token] = dict()
-        if docId not in revertIndex[token]:
-            revertIndex[token][docId] = []
-        revertIndex[token][docId].append(i)
 
 
 start = time.time()
@@ -89,7 +105,7 @@ forwardIndexFile = open(fileRead + '_Forw', 'wb')
 
 allKeys = sorted(revertIndex.keys())
 for key in allKeys:
-    values = sorted(list(revertIndex[key].keys()))
+    values = sorted(revertIndex[key].keys())
     keyLength = len(key)
 
     title_zones = []
@@ -131,7 +147,11 @@ for docId in allDocIds:
     title = forwardIndex[docId].title.encode('utf-8')
     url = forwardIndex[docId].url.encode('utf-8')
     docLen = forwardIndex[docId].docLen
-    bytearr = struct.pack('II{}sI{}s0II'.format(len(title), len(url)), docId, len(title), title, len(url), url, docLen)
+    allSent = allSenteces[docId]
+    bytearr = struct.pack('II{}sI{}s0III'.format(len(title), len(url)), docId, len(title), title, len(url), url, docLen, len(allSent))
+    for sent in allSent:
+        bytearr += struct.pack('I{}s0I'.format(len(sent)), len(sent), sent.encode('utf-8'))
+
     forwardIndexFile.write(bytearr)
 
 print "--- %s all time" % (time.time() - start)

@@ -12,14 +12,22 @@ import struct
 import vbcode
 import math
 import operator
+from nltk.tokenize import RegexpTokenizer
+from heapq import *
 
 app = Flask(__name__)
 
+tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
+
+
 # класс для информации о документе, нужен в прямом индексе для вывода ответа
 class docInfo:
+    docId = 0
     title = ''
     url = ''
-    def __init__(self, title, url, docLen):
+    snippets = []
+    def __init__(self, docId, title, url, docLen):
+        self.docId = docId
         self.title = title
         self.url = url
         self.docLen = docLen
@@ -129,6 +137,13 @@ def readForwardDocs(f):
     len_url = struct.unpack('<I', f.read(4))[0]
     doc_url = struct.unpack('{}s0I'.format(len_url), f.read(len_url + skipBytes(len_url)))[0]
     docLen = struct.unpack('<I', f.read(4))[0]
+    forwardTexts[doc_id] = f.tell()
+    countSents = struct.unpack('<I', f.read(4))[0]
+    for i in xrange(0, countSents):
+        lenSent = struct.unpack('<I', f.read(4))[0]
+        f.seek(lenSent + skipBytes(lenSent), os.SEEK_CUR)
+
+
     return (True, doc_id, doc_title, doc_url, docLen)
 
 # упрощает слово (убирает капитализацию, ударения, приводит к нормальной форме)
@@ -506,7 +521,10 @@ def blurrySearch(elements):
             if t in zoneIndex[docId]:
                 scores[docId] += 19 * wfidf
 
+    start = time.time()
     sorted_scores = sorted(scores.iteritems(), key=operator.itemgetter(1), reverse=True)
+    print "--- %s sort time" % (time.time() - start)
+
     print sorted_scores[:20]
     return [score_id for score_id, score_num in sorted_scores]
 
@@ -527,6 +545,8 @@ def getQueryResult(expr):
 
     resDocsForUser = []
 
+    cacheForSearch.clear()
+
     if isBoolSearch:
         resDocsForUser = boolSearch(elements)
     else: 
@@ -535,6 +555,78 @@ def getQueryResult(expr):
 
     # составление выдачи по docID's
     return [readyForwardIndex[docId] for docId in resDocsForUser]
+
+def buildSnippets(docs, query):
+    print 'build snippets'
+
+    elements = re.findall(u'[a-zа-яА-ЯA-Z0-9]+|\d+(?:[-,.]\d+)*', query)
+
+    print elements
+
+    for i in xrange(0, len(elements)):
+        elements[i] = makeWordSimple(elements[i])
+    
+    elements = set(elements)
+    elements = sorted(list(elements))
+
+    answer = []
+
+    for d in docs:
+        pos = forwardTexts[d.docId]
+
+        f.seek(pos)
+        countSents = struct.unpack('<I', f.read(4))[0]
+
+        idf = [0] * len(elements)
+
+        sentTF = list()
+
+        senArr = []
+
+        for i in xrange(0, countSents):
+            lenSent = struct.unpack('<I', f.read(4))[0]
+            sen = struct.unpack('{}s0I'.format(lenSent), f.read(lenSent + skipBytes(lenSent)))[0]
+            print sen
+            tokens = tokenizer.tokenize(sen)
+            print tokens
+            
+            senArr.append(sen)
+
+            for j in xrange(0, len(tokens)):
+                tokens[j] = makeWordSimple(tokens[j])
+            
+            tf_sen = [tokens.count(elements[k]) for k in xrange(0, len(elements))]
+
+            for j in xrange(0, len(tf_sen)):
+                if tf_sen[j] > 0:
+                    idf[j] += 1
+
+            sentTF.append(tf_sen)
+
+        
+        idf = [math.log(countSents / float(idf[k])) if idf[k] != 0 else 0 for k in xrange(0, len(elements))]
+
+        sum_scores = []
+
+        for i in xrange(0, countSents):
+            tf = sentTF[i]
+            wf = [1 + math.log(tf[k]) if tf[k] != 0 else 0 for k in xrange(0, len(elements))]
+            wfidf = [wf[k] * idf[k] for k in xrange(0, len(elements))]
+            heappush(sum_scores, (sum(wfidf), senArr[i]))
+
+        tmp = nlargest(3, sum_scores)
+
+        result_sentences = []
+        for i in xrange(0, len(tmp)):
+            s = tmp[i][1]
+            s = remove_accents(s).encode('utf-8')
+            s = unicode(s, 'utf-8')
+            result_sentences.append(s)
+
+
+        answer.append(result_sentences)
+
+    return answer
 
 # стартовая страница
 @app.route('/')
@@ -558,13 +650,16 @@ def showRes(query, page):
     print "query = %s" % query
     start_time = time.time()
     # получение docID удовлетворяющих запросу
+
     res = getQueryResult(query)
+
+    resForShow = list(res[(int(page)-1)*50:int(page)*50])
 
     print 'количество документов: {}'.format(len(res))
 
     print "--- %s search time" % (time.time() - start_time)
 
-    res = [docInfo(unicode(r.title, 'utf-8'), unicode(r.url, 'utf-8'), r.docLen) for r in res]
+    res = [docInfo(r.docId, unicode(r.title, 'utf-8'), unicode(r.url, 'utf-8'), r.docLen) for r in res]
     
     pages = []
     count = len(res) / 50
@@ -575,8 +670,14 @@ def showRes(query, page):
     #     return "Error: out of range"
 
     res = res[(int(page)-1)*50:int(page)*50]
+    
+    snippets = buildSnippets(resForShow, query)
+
+    for i in xrange(0, len(res)):
+        res[i].snippets = snippets[i]
 
     pages = [i for i in range(1, numPages + 1)]
+
     return render_template('search.html', docs=res, q=query, nums=pages)
 
 # файл для обратного индекса (бинарный)
@@ -599,7 +700,10 @@ readyForwardIndex = dict()
 cacheForSearch = dict()
 # словарь для зон
 zoneIndex = dict()
+
 cacheForPos = dict()
+
+forwardTexts = dict()
 
 # загрузка словаря лематизации
 lemmaDict = loadLemmaDict()
@@ -613,7 +717,7 @@ for line in wordPos:
 flag = True
 while flag:
     flag, doc_id, doc_title, doc_url, doc_len = readForwardDocs(f)
-    readyForwardIndex[doc_id] = docInfo(doc_title, doc_url, doc_len)
+    readyForwardIndex[doc_id] = docInfo(doc_id, doc_title, doc_url, doc_len)
 
 # все docID документов
 allDocIds = set(readyForwardIndex.keys())
