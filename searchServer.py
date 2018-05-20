@@ -70,40 +70,29 @@ def readPosting(r):
     if raw_len_word == '':
         return (False, "", dict())
 
-    # если прочли запоминаем длину слова
     len_word = struct.unpack('<I', raw_len_word)[0]
-
-    # прочитали слово
     word = struct.unpack('{}s0I'.format(len_word), r.read(len_word + skipBytes(len_word)))[0]
 
-    # прочитали длину компрессованных данных
+    countEntries = struct.unpack('<I', r.read(4))[0]
+    skipListLen = struct.unpack('<I', r.read(4))[0]
+
     lenCompressed = struct.unpack('<I', r.read(4))[0]
 
-    # прочитали зажатую строку
+    start_time = time.time()
     compressed = struct.unpack('{}s0I'.format(lenCompressed), r.read(lenCompressed + skipBytes(lenCompressed)))[0]
-    # раскодировка данных
+    print "--- %s read from disk time" % (time.time() - start_time)
 
     start_time = time.time()
     decompressed = vbcode.decode(compressed)
     print "--- %s decompress time" % (time.time() - start_time)
 
-    # количество постинг листов
-    countEntries = decompressed[0]
-
-    # создание пустого постинга (docID-entries)
     entries = dict()
+    zonesList = decompressed[0 : countEntries]
 
-    # получаем зоны
-    zonesList = decompressed[1:countEntries + 1]
-
-    # индекс начала списков вхождений
-    j = 2 * countEntries + 1
-    # обновляем докайди промежутками
     k = 0
-
     start_time = time.time()
 
-    for i in xrange(countEntries + 1, 2 * countEntries + 1):
+    for i in xrange(countEntries, 2 * countEntries):
         decompressed[i] += decompressed[i - 1]
         docId = decompressed[i]
         inZone = zonesList[k]
@@ -116,27 +105,14 @@ def readPosting(r):
         else:
             if docId not in zoneIndex:
                 zoneIndex[docId] = set()
-
-        entries[docId] = list()
         # берем очередную длину списка вхождений для docId
-        lenEntries = decompressed[j]
-        # индекс начала списка вхождений 
-        j += 1
-        # обновление промежутков вхождений
-        # for l in xrange(j + 1, j + lenEntries):
-        #     decompressed[l] += decompressed[l - 1]
-        # обновление списка вхождений
-        entries[docId].extend(decompressed[j : j + lenEntries])
-        # смещение индекса на начало следующего списка вхождений (а именно на значение длинны следующего списка)
-        j += lenEntries
-            
-
-    # j на месте skipList len
-    skipListLen = decompressed[j]
-    skipList = decompressed[j + 1 : j + 1 + skipListLen]
+        lenEntries = struct.unpack('<I', r.read(4))[0]
+        entries[docId] = (lenEntries, r.tell())
+        r.seek(lenEntries + skipBytes(lenEntries), os.SEEK_CUR)
 
     print "--- %s dist time" % (time.time() - start_time)
 
+    skipList = decompressed[2 * countEntries: 2 * countEntries + skipListLen]
     # добавил скип листы
     return (True, word, entries, skipList)
 
@@ -195,6 +171,21 @@ def indexFromWord(word):
 
     return res, skipList
 
+def extractEntriesFromPos(pos):
+    l = pos[0]
+    position = pos[1]
+
+    r.seek(position)
+    compressed = struct.unpack('{}s0I'.format(l), r.read(l + skipBytes(l)))[0]
+    decompressed = vbcode.decode(compressed)
+    for i in xrange(1, len(decompressed)):
+        decompressed[i] += decompressed[i - 1]
+
+    cacheForPos[position] = decompressed
+
+    return cacheForPos[position]
+
+
 # обновление индексов при поиске цитат
 def updateIndexes(quotes, docID, distance):
     # начальные индексы для каждого слова
@@ -203,7 +194,8 @@ def updateIndexes(quotes, docID, distance):
         indexes.append(0)
 
     # составление списка списков всех вхождений слов из цитаты 
-    entries = [extractPostingForWord(q)[0][docID] for q in quotes]
+
+    entries = [extractEntriesFromPos(extractPostingForWord(q)[0][docID]) for q in quotes]
     # составление списка позиций соответствующих начальным индексам
     positions = list()
     for i in xrange(len(indexes)):
@@ -474,7 +466,7 @@ def boolSearch(elements):
         for docId in post.keys():
             if docId in scores:
                 # нормирование tf по длине документа
-                tf = len(post[docId]) / float(readyForwardIndex[docId].docLen)
+                tf = len(extractEntriesFromPos(post[docId])) / float(readyForwardIndex[docId].docLen)
                 wf = 0
                 if tf > 0:
                     wf = 1 + math.log(tf)
@@ -499,7 +491,7 @@ def blurrySearch(elements):
         idf = math.log10(allDocsCount / len(post.keys()))
         for docId in post.keys():
             # нормирование tf по длине документа
-            tf = len(post[docId]) / float(readyForwardIndex[docId].docLen)
+            tf = len(extractEntriesFromPos(post[docId])) / float(readyForwardIndex[docId].docLen)
             wf = 0
             if tf > 0:
                 wf = 1 + math.log10(tf)
@@ -607,6 +599,7 @@ readyForwardIndex = dict()
 cacheForSearch = dict()
 # словарь для зон
 zoneIndex = dict()
+cacheForPos = dict()
 
 # загрузка словаря лематизации
 lemmaDict = loadLemmaDict()

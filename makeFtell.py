@@ -22,9 +22,15 @@ def skipPosting(r):
     len_word = struct.unpack('<I', raw_len_word)[0]
     word = struct.unpack('{}s0I'.format(len_word), r.read(len_word + skipBytes(len_word)))[0]
 
-    lenCompressed = struct.unpack('<I', r.read(4))[0]    
+    countEntries = struct.unpack('<I', r.read(4))[0]    
+    skipListLen = struct.unpack('<I', r.read(4))[0]    
 
-    r.seek(lenCompressed + skipBytes(lenCompressed), os.SEEK_CUR)
+    lenCompressed = struct.unpack('<I', r.read(4))[0]
+    r.seek(lenCompressed + skipBytes(lenCompressed), os.SEEK_CUR)    
+
+    for i in xrange(0, countEntries):
+        lenEntries = struct.unpack('<I', r.read(4))[0]
+        r.seek(lenEntries + skipBytes(lenEntries), os.SEEK_CUR)
         
     return True, word
 

@@ -70,13 +70,15 @@ def processArticle(line):
             revertIndex[token][docId] = []
         revertIndex[token][docId].append(i)
 
-start_time = time.time()
+
+start = time.time()
 
 fileRead = sys.argv[1]
 
-print "--- %s start tokenization" % (time.time() - start_time)
+# загрузка словарая лематизации
+print "--- %s start tokenization" % (time.time() - start)
 loadLemmaDict()
-print "--- %s dict loaded" % (time.time() - start_time)
+print "--- %s dict loaded" % (time.time() - start)
 
 f = open(fileRead)
 for line in f:
@@ -89,7 +91,6 @@ allKeys = sorted(revertIndex.keys())
 for key in allKeys:
     values = sorted(list(revertIndex[key].keys()))
     keyLength = len(key)
-    bytearr = struct.pack('I{}s0I'.format(keyLength), keyLength, key)
 
     title_zones = []
 
@@ -105,23 +106,22 @@ for key in allKeys:
 
     skipList = range(0, len(values), int(math.sqrt(len(values))))
     
-    list_for_compression = [len(values)]
-    list_for_compression.extend(title_zones)
+    bytearr = struct.pack('I{}s0III'.format(keyLength), keyLength, key, len(values), len(skipList))
+
+    list_for_compression = title_zones
     list_for_compression.extend(dist_v)
+    list_for_compression.extend(skipList)
+
+    compressed = vbcode.encode(list_for_compression)
+    bytearr += struct.pack('I{}s0I'.format(len(compressed)), len(compressed), compressed)
     
     for v in values:
         entries = list(revertIndex[key][v])
         for i in reversed(xrange(1, len(entries))):
             entries[i] = entries[i] - entries[i - 1]
-        list_for_compression.append(len(entries))
-        list_for_compression.extend(entries)
 
-    list_for_compression.append(len(skipList))
-    list_for_compression.extend(skipList)
-
-    compressed = vbcode.encode(list_for_compression)
-    
-    bytearr += struct.pack('I{}s0I'.format(len(compressed)), len(compressed), compressed)
+        compressed = vbcode.encode(entries)
+        bytearr += struct.pack('I{}s0I'.format(len(compressed)), len(compressed), compressed)
 
     revIndexFile.write(bytearr)
 
@@ -134,7 +134,7 @@ for docId in allDocIds:
     bytearr = struct.pack('II{}sI{}s0II'.format(len(title), len(url)), docId, len(title), title, len(url), url, docLen)
     forwardIndexFile.write(bytearr)
 
-print "--- %s all time" % (time.time() - start_time)
+print "--- %s all time" % (time.time() - start)
 
 f.close()
 
