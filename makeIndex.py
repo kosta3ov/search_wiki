@@ -14,19 +14,21 @@ import vbcode
 import math
 
 tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
-sentencer = RegexpTokenizer(u'[^\.\!\?]*[\.\!\?]')
 
 lemmaDict = {}
 revertIndex = {}
 forwardIndex = {}
 titleZoneIndex = {}
-allSenteces = {}
 
 class docInfo:
+    doc_id = 0
     title = ''
     url = ''
     docLen = 0
-    def __init__(self, title, url, docLen):
+    text = ''
+    def __init__(self, title, url, doc_id, text, docLen):
+        self.text = text
+        self.doc_id = doc_id
         self.title = title
         self.url = url
         self.docLen = docLen
@@ -48,35 +50,24 @@ def processArticle(line):
     docId = int(article['id'])
     title = article['title']
     url = article['url']
-
-    allSenteces[docId] = list()
+    text = remove_accents(article['text'].lower())
 
     tokensCount = 0
 
-    sentences = sentencer.tokenize(remove_accents(article['text'].lower()))
+    tokens = tokenizer.tokenize(text)
 
-    for i in xrange(0, len(sentences)):
-        sen = sentences[i]
+    for i in xrange(0, len(tokens)):
+        token = tokens[i].encode('utf-8')
+        if token in lemmaDict:
+            token = lemmaDict[token]
 
-        tokens = tokenizer.tokenize(sen)
+        if token not in revertIndex:
+            revertIndex[token] = dict()
+        if docId not in revertIndex[token]:
+            revertIndex[token][docId] = []
+        revertIndex[token][docId].append(i)
 
-        allSenteces[docId].append(u" ".join(tokens))
-
-        tokensCount += len(tokens)
-
-        for j in xrange(len(tokens)):
-            token = tokens[j].encode('utf-8')
-            if token in lemmaDict:
-                token = lemmaDict[token]
-
-            if token not in revertIndex:
-                revertIndex[token] = dict()
-            if docId not in revertIndex[token]:
-                revertIndex[token][docId] = []
-            revertIndex[token][docId].append(j)
-
-    forwardIndex[docId] = docInfo(title, url, tokensCount)
-
+    forwardIndex[docId] = docInfo(title, url, docId, " ".join(tokens), len(tokens))
 
     titleTokens = tokenizer.tokenize(remove_accents(article['title'].lower()))
     titleZoneIndex[docId] = set()
@@ -147,11 +138,9 @@ for docId in allDocIds:
     title = forwardIndex[docId].title.encode('utf-8')
     url = forwardIndex[docId].url.encode('utf-8')
     docLen = forwardIndex[docId].docLen
-    allSent = allSenteces[docId]
-    bytearr = struct.pack('II{}sI{}s0III'.format(len(title), len(url)), docId, len(title), title, len(url), url, docLen, len(allSent))
-    for sent in allSent:
-        bytearr += struct.pack('I{}s0I'.format(len(sent)), len(sent), sent.encode('utf-8'))
+    text = forwardIndex[docId].text.encode('utf-8')
 
+    bytearr = struct.pack('II{}sI{}s0III{}s0I'.format(len(title), len(url), len(text)), docId, len(title), title, len(url), url, docLen, len(text), text)
     forwardIndexFile.write(bytearr)
 
 print "--- %s all time" % (time.time() - start)

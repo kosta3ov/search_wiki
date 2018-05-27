@@ -19,15 +19,16 @@ app = Flask(__name__)
 
 tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
 
+delta = 4
 
 # класс для информации о документе, нужен в прямом индексе для вывода ответа
 class docInfo:
-    docId = 0
+    doc_id = 0
     title = ''
     url = ''
-    snippets = []
-    def __init__(self, docId, title, url, docLen):
-        self.docId = docId
+    docLen = 0
+    def __init__(self, title, url, doc_id, docLen):
+        self.doc_id = doc_id
         self.title = title
         self.url = url
         self.docLen = docLen
@@ -138,12 +139,9 @@ def readForwardDocs(f):
     doc_url = struct.unpack('{}s0I'.format(len_url), f.read(len_url + skipBytes(len_url)))[0]
     docLen = struct.unpack('<I', f.read(4))[0]
     forwardTexts[doc_id] = f.tell()
-    countSents = struct.unpack('<I', f.read(4))[0]
-    for i in xrange(0, countSents):
-        lenSent = struct.unpack('<I', f.read(4))[0]
-        f.seek(lenSent + skipBytes(lenSent), os.SEEK_CUR)
-
-
+    lenText = struct.unpack('<I', f.read(4))[0]
+    f.seek(lenText + skipBytes(lenText), os.SEEK_CUR)
+    
     return (True, doc_id, doc_title, doc_url, docLen)
 
 # упрощает слово (убирает капитализацию, ударения, приводит к нормальной форме)
@@ -330,11 +328,14 @@ def returnQuoteWordsAndDistance(word):
 # основная функция поиска
 def returnSetIntersection(l):
     # обработка терма
+
     if l[0] not in ops:
         word = l[0]
         substr = False
         # определение отприцания
+        print word[0]
         if word[0] == '!':
+            print 'yes'
             substr = True
             word = word[1:]
 
@@ -467,7 +468,10 @@ def boolSearch(elements):
             words, dist = returnQuoteWordsAndDistance(el)
             clearElements.extend(words)
         elif el not in ops:
-            clearElements.append(el)
+            if el[0] == '!':
+                clearElements.append(el[1:])
+            else:
+                clearElements.append(el)
         else:
             continue
     
@@ -536,7 +540,7 @@ def getQueryResult(expr):
 
     isBoolSearch = False
     for el in elements:
-        if el in ops or el.count('"') == 2:
+        if el in ops or el.count('"') == 2 or el[0] == '!':
             isBoolSearch = True
             break
     
@@ -548,6 +552,7 @@ def getQueryResult(expr):
     cacheForSearch.clear()
 
     if isBoolSearch:
+        print 'bool search'
         resDocsForUser = boolSearch(elements)
     else: 
         print 'blurry search'
@@ -559,72 +564,137 @@ def getQueryResult(expr):
 def buildSnippets(docs, query):
     print 'build snippets'
 
-    elements = re.findall(u'[a-zа-яА-ЯA-Z0-9]+|\d+(?:[-,.]\d+)*', query)
+    elements = tokenizer.tokenize(query.lower())
 
     print elements
-
-    for i in xrange(0, len(elements)):
-        elements[i] = makeWordSimple(elements[i])
     
-    elements = set(elements)
-    elements = sorted(list(elements))
+    querySetElements = set()
+    for i in xrange(0, len(elements)):
+        querySetElements.add(makeWordSimple(elements[i]))
 
+    counts = dict()
+    elements = set(elements)
+    
     answer = []
 
     for d in docs:
-        pos = forwardTexts[d.docId]
+        print "doc_Id:%d" % d.doc_id
+        curDocAnswer = []
 
-        f.seek(pos)
-        countSents = struct.unpack('<I', f.read(4))[0]
-
-        idf = [0] * len(elements)
-
-        sentTF = list()
-
-        senArr = []
-
-        for i in xrange(0, countSents):
-            lenSent = struct.unpack('<I', f.read(4))[0]
-            sen = struct.unpack('{}s0I'.format(lenSent), f.read(lenSent + skipBytes(lenSent)))[0]
-            print sen
-            tokens = tokenizer.tokenize(sen)
-            print tokens
-            
-            senArr.append(sen)
-
-            for j in xrange(0, len(tokens)):
-                tokens[j] = makeWordSimple(tokens[j])
-            
-            tf_sen = [tokens.count(elements[k]) for k in xrange(0, len(elements))]
-
-            for j in xrange(0, len(tf_sen)):
-                if tf_sen[j] > 0:
-                    idf[j] += 1
-
-            sentTF.append(tf_sen)
-
+        existingElements = set()
         
-        idf = [math.log(countSents / float(idf[k])) if idf[k] != 0 else 0 for k in xrange(0, len(elements))]
+        if d.doc_id not in forwardTexts:
+            answer.append([u""])
+            continue
 
-        sum_scores = []
+        pos = forwardTexts[d.doc_id]
+        f.seek(pos)
+        textLen = struct.unpack('<I', f.read(4))[0]
+        text = struct.unpack('{}s0I'.format(textLen), f.read(textLen + skipBytes(textLen)))[0]
+        tokens = text.split()        
 
-        for i in xrange(0, countSents):
-            tf = sentTF[i]
-            wf = [1 + math.log(tf[k]) if tf[k] != 0 else 0 for k in xrange(0, len(elements))]
-            wfidf = [wf[k] * idf[k] for k in xrange(0, len(elements))]
-            heappush(sum_scores, (sum(wfidf), senArr[i]))
+        for i in xrange(0, len(tokens)):
+            k = ""
+            if tokens[i] in lemmaDict:
+                k = lemmaDict[tokens[i]]
+            else:
+                k = tokens[i]
 
-        tmp = nlargest(3, sum_scores)
+            if k in querySetElements:
+                existingElements.add(k)
 
-        result_sentences = []
-        for i in xrange(0, len(tmp)):
-            s = tmp[i][1]
-            s = remove_accents(s).encode('utf-8')
-            s = unicode(s, 'utf-8')
-            result_sentences.append(s)
+        print "existing elements: %s" % existingElements
+
+        if len(existingElements) == 0:
+            if len(tokens) > 60:
+                answer.append([unicode(" ".join(tokens[:60]), "utf-8")])
+            else:
+                answer.append([unicode(" ".join(tokens), "utf-8")])
+            continue
+    
+        leftLocal = 0
+        rightLocal = 0
+
+        leftGlobal = 0
+        rightGlobal = 100
+        minLenSegment = 10000000000
+
+        elementsInSegment = set()
+        counts.clear()
+        for el in existingElements:
+            counts[el] = 0
 
 
-        answer.append(result_sentences)
+        while rightLocal < len(tokens):
+            
+            while rightLocal < len(tokens) and elementsInSegment != existingElements:
+                t = ""
+                if tokens[rightLocal] in lemmaDict:
+                    t = lemmaDict[tokens[rightLocal]] 
+                else:
+                    t = tokens[rightLocal]
+
+                if t in existingElements:
+                    counts[t] += 1
+                    elementsInSegment.add(t)
+
+                rightLocal += 1
+
+            if elementsInSegment == existingElements:
+                # ищем левый край
+                while len(elementsInSegment) == len(existingElements):
+                    t = ""
+                    if tokens[leftLocal] in lemmaDict:
+                        t = lemmaDict[tokens[leftLocal]] 
+                    else:
+                        t = tokens[leftLocal]
+
+                    if t in elementsInSegment:
+                        counts[t] -= 1
+                        if counts[t] <= 0:
+                            elementsInSegment.remove(t)
+
+                    leftLocal += 1                
+                
+                if (rightLocal - leftLocal) <= minLenSegment:
+                    leftGlobal = leftLocal - 1
+                    rightGlobal = rightLocal
+                    minLenSegment = rightGlobal - leftGlobal
+                    heappush(curDocAnswer, (minLenSegment, leftGlobal, rightGlobal))
+
+        neededTokens = 100
+
+        filteredAnswer = []
+        while neededTokens > 0 and len(curDocAnswer) > 0:
+            l, left, right = heappop(curDocAnswer)
+            if l >= 20 and l <= 50:
+                neededTokens -= l
+                heappush(filteredAnswer, (left, unicode(" ".join(tokens[left:right]), 'utf-8')))
+            else:
+                for i in xrange(left, right):
+                    t = ""
+                    if tokens[i] in lemmaDict:
+                        t = lemmaDict[tokens[i]] 
+                    else:
+                        t = tokens[i]
+                    
+                    curAnswer = []
+                    if t in existingElements:
+                        first = 0
+                        if i - delta > 0:
+                            first = i - delta
+
+                        for j in xrange(i - delta, i + delta):
+                            if j > 0 and j < len(tokens):
+                                curAnswer.append(tokens[j])
+
+                        neededTokens -= len(curAnswer)
+                        heappush(filteredAnswer, (first, unicode(" ".join(curAnswer), 'utf-8')))
+
+        filteredAnswer = [el[1] for el in filteredAnswer]
+        filteredAnswerString = u" ... ".join(filteredAnswer)
+
+        answer.append([filteredAnswerString])
 
     return answer
 
@@ -659,7 +729,7 @@ def showRes(query, page):
 
     print "--- %s search time" % (time.time() - start_time)
 
-    res = [docInfo(r.docId, unicode(r.title, 'utf-8'), unicode(r.url, 'utf-8'), r.docLen) for r in res]
+    res = [docInfo(unicode(r.title, 'utf-8'), unicode(r.url, 'utf-8'), r.doc_id, r.docLen) for r in res]
     
     pages = []
     count = len(res) / 50
@@ -717,7 +787,7 @@ for line in wordPos:
 flag = True
 while flag:
     flag, doc_id, doc_title, doc_url, doc_len = readForwardDocs(f)
-    readyForwardIndex[doc_id] = docInfo(doc_id, doc_title, doc_url, doc_len)
+    readyForwardIndex[doc_id] = docInfo(doc_title, doc_url, doc_id, doc_len)
 
 # все docID документов
 allDocIds = set(readyForwardIndex.keys())

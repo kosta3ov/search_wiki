@@ -40,8 +40,8 @@ r = open(fileRevert, 'rb')
 wordPos = open('{}_positions'.format(fileRevert), 'w')
 
 readyRevertIndex = dict()
-
 flag = True
+
 while flag == True:
     pos = r.tell()
     flag, word = skipPosting(r)
