@@ -15,7 +15,7 @@ import math
 
 tokenizer = RegexpTokenizer(u'(?:[a-zа-я]\.){2,}[a-zа-я]?|\d+(?:[-,.]\d+)*|[a-zа-я]+')
 
-lemmaDict = {}
+# lemmaDict = {}
 revertIndex = {}
 forwardIndex = {}
 titleZoneIndex = {}
@@ -33,12 +33,12 @@ class docInfo:
         self.url = url
         self.docLen = docLen
 
-def loadLemmaDict():
-    f1 = open("uniq_words_union", 'r')
-    f2 = open("norm_stem", 'r')
-    for line in f1:
-        line2 = f2.readline()
-        lemmaDict[line[:-1]] = line2[:-1]
+# def loadLemmaDict():
+#     f1 = open("uniq_words_union", 'r')
+#     f2 = open("norm_stem", 'r')
+#     for line in f1:
+#         line2 = f2.readline()
+#         lemmaDict[line[:-1]] = line2[:-1]
 
 def remove_accents(input_str):
     nkfd_form = unicodedata.normalize('NFKD', input_str)
@@ -58,8 +58,8 @@ def processArticle(line):
 
     for i in xrange(0, len(tokens)):
         token = tokens[i].encode('utf-8')
-        if token in lemmaDict:
-            token = lemmaDict[token]
+        # if token in lemmaDict:
+        #     token = lemmaDict[token]
 
         if token not in revertIndex:
             revertIndex[token] = dict()
@@ -73,8 +73,8 @@ def processArticle(line):
     titleZoneIndex[docId] = set()
     for i in xrange(len(titleTokens)):
         token = titleTokens[i].encode('utf-8')
-        if token in lemmaDict:
-            token = lemmaDict[token]
+        # if token in lemmaDict:
+        #     token = lemmaDict[token]
         titleZoneIndex[docId].add(token)
 
 
@@ -84,7 +84,7 @@ fileRead = sys.argv[1]
 
 # загрузка словарая лематизации
 print "--- %s start tokenization" % (time.time() - start)
-loadLemmaDict()
+# loadLemmaDict()
 print "--- %s dict loaded" % (time.time() - start)
 
 f = open(fileRead)

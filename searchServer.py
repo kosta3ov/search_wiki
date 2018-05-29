@@ -36,14 +36,14 @@ class docInfo:
         return self.title + " " + self.url
 
 # загрузка словаря лематизации
-def loadLemmaDict():
-    lemmaDict = dict()
-    f1 = open("uniq_words_union", 'r')
-    f2 = open("norm_stem", 'r')
-    for line in f1:
-        line2 = f2.readline()
-        lemmaDict[line[:-1]] = line2[:-1]
-    return lemmaDict
+# def loadLemmaDict():
+#     lemmaDict = dict()
+#     f1 = open("uniq_words_union", 'r')
+#     f2 = open("norm_stem", 'r')
+#     for line in f1:
+#         line2 = f2.readline()
+#         lemmaDict[line[:-1]] = line2[:-1]
+#     return lemmaDict
 
 # убираем ударения и прочие ненужные символы, заменяем их на обычные
 def remove_accents(input_str):
@@ -149,8 +149,8 @@ def makeWordSimple(word):
     # - капитализация, - ударения
     word = remove_accents(word.lower()).encode('utf-8')
     # если слово есть словаре лематизации, заменяем его им
-    if word in lemmaDict:
-        word = lemmaDict[word]
+    # if word in lemmaDict:
+    #     word = lemmaDict[word]
     return word
 
 # Отрицание результата 
@@ -594,11 +594,10 @@ def buildSnippets(docs, query):
         tokens = text.split()        
 
         for i in xrange(0, len(tokens)):
-            k = ""
-            if tokens[i] in lemmaDict:
-                k = lemmaDict[tokens[i]]
-            else:
-                k = tokens[i]
+            # if tokens[i] in lemmaDict:
+            #     k = lemmaDict[tokens[i]]
+            # else:
+            k = tokens[i]
 
             if k in querySetElements:
                 existingElements.add(k)
@@ -628,11 +627,11 @@ def buildSnippets(docs, query):
         while rightLocal < len(tokens):
             
             while rightLocal < len(tokens) and elementsInSegment != existingElements:
-                t = ""
-                if tokens[rightLocal] in lemmaDict:
-                    t = lemmaDict[tokens[rightLocal]] 
-                else:
-                    t = tokens[rightLocal]
+                # t = ""
+                # if tokens[rightLocal] in lemmaDict:
+                #     t = lemmaDict[tokens[rightLocal]] 
+                # else:
+                t = tokens[rightLocal]
 
                 if t in existingElements:
                     counts[t] += 1
@@ -643,11 +642,11 @@ def buildSnippets(docs, query):
             if elementsInSegment == existingElements:
                 # ищем левый край
                 while len(elementsInSegment) == len(existingElements):
-                    t = ""
-                    if tokens[leftLocal] in lemmaDict:
-                        t = lemmaDict[tokens[leftLocal]] 
-                    else:
-                        t = tokens[leftLocal]
+                    # t = ""
+                    # if tokens[leftLocal] in lemmaDict:
+                    #     t = lemmaDict[tokens[leftLocal]] 
+                    # else:
+                    t = tokens[leftLocal]
 
                     if t in elementsInSegment:
                         counts[t] -= 1
@@ -672,11 +671,11 @@ def buildSnippets(docs, query):
                 heappush(filteredAnswer, (left, unicode(" ".join(tokens[left:right]), 'utf-8')))
             else:
                 for i in xrange(left, right):
-                    t = ""
-                    if tokens[i] in lemmaDict:
-                        t = lemmaDict[tokens[i]] 
-                    else:
-                        t = tokens[i]
+                    # t = ""
+                    # if tokens[i] in lemmaDict:
+                    #     t = lemmaDict[tokens[i]] 
+                    # else:
+                    t = tokens[i]
                     
                     curAnswer = []
                     if t in existingElements:
@@ -776,7 +775,7 @@ cacheForPos = dict()
 forwardTexts = dict()
 
 # загрузка словаря лематизации
-lemmaDict = loadLemmaDict()
+# lemmaDict = loadLemmaDict()
 
 # заполнение словаря позиций слов на диске
 for line in wordPos:
